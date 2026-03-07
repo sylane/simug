@@ -97,12 +97,12 @@ Status convention:
   - Scope: assert managed/bootstrap/repair prompt builders keep required protocol instructions and examples (`SIMUG:` prefix, terminal action rule, no-push constraints).
   - Done when: prompt contract drift is caught by automated tests before merge.
 
-- [ ] **Task 4.5: Prompt-driven simulated Codex protocol matrix tests**
+- [x] **Task 4.5: Prompt-driven simulated Codex protocol matrix tests**
   - Scope: run orchestrator/agent integration with realistic mixed stdout fixtures (narrative text + protocol lines) covering valid, malformed, missing-terminal, and multi-terminal responses, while preserving 4.4 prompt-contract requirements.
   - Done when: parser/orchestrator behavior is deterministic across protocol compliance and failure classes.
 
 - [ ] **Task 4.6: Prompt tuning harness for repeatable protocol failures**
-  - Scope: add repeatable test cases that model common Codex failure patterns and verify prompt refinements reduce recurring parse/validation failures.
+  - Scope: add repeatable test cases that model common Codex failure patterns and verify prompt refinements reduce recurring parse/validation failures, reusing and extending the 4.5 protocol matrix corpus.
   - Done when: prompt changes can be validated against a stable failure corpus instead of ad-hoc manual checks.
 
 - [ ] **Task 4.7: Dual-entity output routing contract tests**
