@@ -16,3 +16,4 @@ https://keepachangelog.com/en/1.1.0/
 - Prompt contract regression tests for managed/bootstrap/repair prompt builders to catch drift in required protocol rules (`SIMUG:` lines, terminal-action rule, no-push constraints).
 - Prompt-driven protocol matrix tests covering mixed stdout with valid, malformed JSON, missing-terminal, and multi-terminal Codex response classes.
 - Prompt-tuning harness tests for repeatable failure corpus scenarios, plus bounded retry handling for Codex execution/protocol failures via repair prompts.
+- Dual-entity routing contract coverage for `SIMUG:` (coordinator) and `SIMUG_MANAGER:` (manager), with deterministic quarantine of ambiguous unprefixed output lines.

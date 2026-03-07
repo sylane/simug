@@ -105,12 +105,12 @@ Status convention:
   - Scope: add repeatable test cases that model common Codex failure patterns and verify prompt refinements reduce recurring parse/validation failures, reusing and extending the 4.5 protocol matrix corpus.
   - Done when: prompt changes can be validated against a stable failure corpus instead of ad-hoc manual checks.
 
-- [ ] **Task 4.7: Dual-entity output routing contract tests**
+- [x] **Task 4.7: Dual-entity output routing contract tests**
   - Scope: test prompt/parse behavior for explicit `SIMUG:` (coordinator) and `SIMUG_MANAGER:` (manager) output prefixes, including rejection or quarantine of ambiguous unprefixed output, extending the repeatable 4.6 failure corpus/harness.
   - Done when: coordinator/manager channel separation is regression-tested and deterministic.
 
 - [ ] **Task 4.8: Prompt-injection resilience tests**
-  - Scope: add adversarial fixtures from GitHub comments/issues that attempt instruction override; verify only authorized `/agent` commands and coordinator directives are actionable.
+  - Scope: add adversarial fixtures from GitHub comments/issues that attempt instruction override; verify only authorized `/agent` commands and coordinator directives are actionable, including manager/coordinator channel-prefix abuse attempts.
   - Done when: injection-like inputs are contained and policy regressions fail tests.
 
 ## Phase 5: Issue-Driven Intake Before Next Task (Priority)

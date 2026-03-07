@@ -337,3 +337,75 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 		t.Fatalf("metadata expected branch=%q, want %q", meta.ExpectedBranch, branch)
 	}
 }
+
+func TestRunRoutesManagerPrefixAndQuarantinesUnprefixedOutput(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG_MANAGER: hello manager\nfree text line\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"hello","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".simug", "events.log"))
+	if err != nil {
+		t.Fatalf("read events log: %v", err)
+	}
+
+	foundManager := false
+	foundQuarantine := false
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var entry struct {
+			Kind   string         `json:"kind"`
+			Fields map[string]any `json:"fields"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decode event log entry: %v", err)
+		}
+		if entry.Kind == "manager_message" {
+			foundManager = true
+			if body, _ := entry.Fields["body"].(string); body != "hello manager" {
+				t.Fatalf("unexpected manager message body: %#v", entry.Fields)
+			}
+		}
+		if entry.Kind == "agent_quarantine" {
+			foundQuarantine = true
+			if count, ok := entry.Fields["count"]; !ok || count.(float64) < 1 {
+				t.Fatalf("unexpected quarantine entry: %#v", entry.Fields)
+			}
+		}
+	}
+	if !foundManager {
+		t.Fatalf("expected manager_message event")
+	}
+	if !foundQuarantine {
+		t.Fatalf("expected agent_quarantine event")
+	}
+}

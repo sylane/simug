@@ -13,6 +13,7 @@ import (
 
 const (
 	protocolPrefixCurrent = "SIMUG:"
+	protocolPrefixManager = "SIMUG_MANAGER:"
 )
 
 type ActionType string
@@ -36,9 +37,11 @@ type Action struct {
 }
 
 type Result struct {
-	RawOutput string
-	Actions   []Action
-	Terminal  Action
+	RawOutput        string
+	Actions          []Action
+	Terminal         Action
+	ManagerMessages  []string
+	QuarantinedLines []string
 }
 
 type Runner struct {
@@ -88,7 +91,7 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 		}
 	}
 
-	actions, err := parseActions(raw)
+	parsed, err := parseRoutedOutput(raw)
 	if err != nil {
 		return Result{}, &RunError{
 			Cause:     err,
@@ -98,7 +101,7 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 
 	terminalCount := 0
 	var terminal Action
-	for _, a := range actions {
+	for _, a := range parsed.Actions {
 		if a.Type == ActionDone || a.Type == ActionIdle {
 			terminalCount++
 			terminal = a
@@ -111,35 +114,64 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 		}
 	}
 
-	return Result{RawOutput: raw, Actions: actions, Terminal: terminal}, nil
+	return Result{
+		RawOutput:        raw,
+		Actions:          parsed.Actions,
+		Terminal:         terminal,
+		ManagerMessages:  parsed.ManagerMessages,
+		QuarantinedLines: parsed.QuarantinedLines,
+	}, nil
 }
 
 func parseActions(raw string) ([]Action, error) {
+	parsed, err := parseRoutedOutput(raw)
+	if err != nil {
+		return nil, err
+	}
+	return parsed.Actions, nil
+}
+
+type parsedOutput struct {
+	Actions          []Action
+	ManagerMessages  []string
+	QuarantinedLines []string
+}
+
+func parseRoutedOutput(raw string) (parsedOutput, error) {
 	scanner := bufio.NewScanner(strings.NewReader(raw))
 	// Allow large protocol payloads while keeping an upper cap.
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
-	var actions []Action
+	out := parsedOutput{}
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, protocolPrefixCurrent) {
+		switch {
+		case strings.HasPrefix(line, protocolPrefixCurrent):
+			jsonPart := strings.TrimSpace(strings.TrimPrefix(line, protocolPrefixCurrent))
+			action, err := parseActionJSON(jsonPart)
+			if err != nil {
+				return parsedOutput{}, fmt.Errorf("parse protocol line %q: %w", line, err)
+			}
+			out.Actions = append(out.Actions, action)
+		case strings.HasPrefix(line, protocolPrefixManager):
+			message := strings.TrimSpace(strings.TrimPrefix(line, protocolPrefixManager))
+			if message != "" {
+				out.ManagerMessages = append(out.ManagerMessages, message)
+			}
+		case line != "":
+			out.QuarantinedLines = append(out.QuarantinedLines, line)
+		default:
 			continue
 		}
-		jsonPart := strings.TrimSpace(strings.TrimPrefix(line, protocolPrefixCurrent))
-		action, err := parseActionJSON(jsonPart)
-		if err != nil {
-			return nil, fmt.Errorf("parse protocol line %q: %w", line, err)
-		}
-		actions = append(actions, action)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan agent output: %w", err)
+		return parsedOutput{}, fmt.Errorf("scan agent output: %w", err)
 	}
-	if len(actions) == 0 {
-		return nil, fmt.Errorf("agent output missing protocol lines (expected lines beginning with %q)", protocolPrefixCurrent)
+	if len(out.Actions) == 0 {
+		return parsedOutput{}, fmt.Errorf("agent output missing protocol lines (expected lines beginning with %q)", protocolPrefixCurrent)
 	}
-	return actions, nil
+	return out, nil
 }
 
 func parseActionJSON(raw string) (Action, error) {

@@ -244,6 +244,7 @@ If more than one authored open PR exists, worker exits with a clear error to pre
 Codex must emit machine-readable lines:
 
 ```text
+SIMUG_MANAGER: <human-friendly manager message>
 SIMUG: {"action":"comment","body":"..."}
 SIMUG: {"action":"reply","comment_id":123,"body":"..."}
 SIMUG: {"action":"done","summary":"...","changes":true}
@@ -254,6 +255,8 @@ Rules:
 
 - exactly one terminal action (`done` or `idle`),
 - malformed protocol is treated as failure,
+- manager-facing human text must use `SIMUG_MANAGER:` prefix,
+- unprefixed non-empty output lines are quarantined by the orchestrator (not treated as protocol),
 - Codex must not push or create PR directly.
 
 ## Typical Dev Loop (Self-Hosted)

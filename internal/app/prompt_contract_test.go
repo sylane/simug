@@ -26,8 +26,11 @@ func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
 	prompt := o.buildManagedPRPrompt(pr, nil, false, "")
 	required := []string{
 		"Emit machine actions only with protocol lines starting exactly with SIMUG:",
+		"Emit manager-facing human messages only with prefix SIMUG_MANAGER:",
+		"Unprefixed narrative text is quarantined and ignored by the coordinator.",
 		"Terminal protocol action must be exactly one of done or idle.",
 		"Do NOT push, do NOT create or modify PRs directly.",
+		"SIMUG_MANAGER: <human-friendly manager message>",
 		`SIMUG: {"action":"comment","body":"..."}`,
 		`SIMUG: {"action":"reply","comment_id":123,"body":"..."}`,
 		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}`,
@@ -52,7 +55,9 @@ func TestBuildBootstrapPromptContainsProtocolContract(t *testing.T) {
 	required := []string{
 		fmt.Sprintf("Create and use branch EXACTLY named: %s", expectedBranch),
 		"Do NOT push. Do NOT create PR.",
+		"Use SIMUG_MANAGER: for manager-facing human text; unprefixed text is quarantined.",
 		"Exactly one terminal action (done or idle) is required.",
+		"SIMUG_MANAGER: <human-friendly manager message>",
 		`SIMUG: {"action":"comment","body":"..."}`,
 		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}`,
 		`SIMUG: {"action":"idle","reason":"no task available"}`,
@@ -75,7 +80,9 @@ func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
 	prompt := o.buildRepairPrompt(expectedBranch, fmt.Errorf("boom"))
 	required := []string{
 		"never push or create/update PR directly",
+		"use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined",
 		fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)", expectedBranch, o.cfg.MainBranch),
+		"SIMUG_MANAGER: <human-friendly manager message>",
 		`SIMUG: {"action":"comment","body":"..."}`,
 		`SIMUG: {"action":"reply","comment_id":123,"body":"..."}`,
 		`SIMUG: {"action":"done","summary":"...","changes":true}`,
