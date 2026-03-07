@@ -230,6 +230,8 @@ If more than one authored open PR exists, worker exits with a clear error to pre
 - `.simug/lock` (single-process guard)
 - `.simug/events.log` (JSONL event/audit log)
 
+`events.log` includes high-fidelity trace entries (`command_trace`, `invariant_decision`, `tick_start`, `tick_end`) with run/tick correlation IDs for post-failure reconstruction.
+
 ## Codex Protocol
 
 Codex must emit machine-readable lines:

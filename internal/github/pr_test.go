@@ -71,3 +71,55 @@ func TestListOpenPRsByAuthorParsesJSON(t *testing.T) {
 		t.Fatalf("unexpected prs: %#v", prs)
 	}
 }
+
+func TestRunEmitsCommandTraceOnSuccess(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh api user --jq .login": "alice\n",
+	}}
+	restoreRunner := SetCommandRunnerForTest(r)
+	defer restoreRunner()
+
+	var got []CommandTrace
+	restoreTrace := SetCommandTraceHook(func(trace CommandTrace) { got = append(got, trace) })
+	defer restoreTrace()
+
+	login, err := CurrentUser(context.Background(), "/tmp")
+	if err != nil {
+		t.Fatalf("CurrentUser returned error: %v", err)
+	}
+	if login != "alice" {
+		t.Fatalf("login=%q, want alice", login)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 trace, got %d", len(got))
+	}
+	if got[0].Name != "gh" || got[0].ExitCode != 0 {
+		t.Fatalf("unexpected trace: %#v", got[0])
+	}
+}
+
+func TestRunEmitsCommandTraceOnError(t *testing.T) {
+	r := mockCommandRunner{errors: map[string]error{
+		"gh api user --jq .login": fmt.Errorf("no auth"),
+	}}
+	restoreRunner := SetCommandRunnerForTest(r)
+	defer restoreRunner()
+
+	var got []CommandTrace
+	restoreTrace := SetCommandTraceHook(func(trace CommandTrace) { got = append(got, trace) })
+	defer restoreTrace()
+
+	_, err := CurrentUser(context.Background(), "/tmp")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 trace, got %d", len(got))
+	}
+	if got[0].ExitCode != -1 {
+		t.Fatalf("expected exit code -1, got %d", got[0].ExitCode)
+	}
+	if got[0].Error == "" {
+		t.Fatalf("expected trace error to be populated")
+	}
+}

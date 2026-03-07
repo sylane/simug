@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -48,6 +49,8 @@ type orchestrator struct {
 	cfg      config
 	runner   agent.Runner
 	logger   *eventLogger
+	runID    string
+	tickSeq  int64
 }
 
 type event struct {
@@ -81,6 +84,24 @@ func Run(ctx context.Context, startDir string) error {
 	}
 	defer unlock()
 
+	logger, err := newEventLogger(repoRoot)
+	if err != nil {
+		return fmt.Errorf("initialize event log: %w", err)
+	}
+
+	runID := buildRunID()
+	var tickSeq atomic.Int64
+	var commandSeq atomic.Int64
+
+	restoreGitTrace := git.SetCommandTraceHook(func(trace git.CommandTrace) {
+		logCommandTrace(logger, runID, tickSeq.Load(), commandSeq.Add(1), "git", trace.Name, trace.Args, trace.Duration, trace.ExitCode, trace.StdoutTail, trace.StderrTail, trace.Error)
+	})
+	defer restoreGitTrace()
+	restoreGitHubTrace := github.SetCommandTraceHook(func(trace github.CommandTrace) {
+		logCommandTrace(logger, runID, tickSeq.Load(), commandSeq.Add(1), "github", trace.Name, trace.Args, trace.Duration, trace.ExitCode, trace.StdoutTail, trace.StderrTail, trace.Error)
+	})
+	defer restoreGitHubTrace()
+
 	repo, err := git.ResolveGitHubRepo(ctx, repoRoot)
 	if err != nil {
 		return err
@@ -110,11 +131,6 @@ func Run(ctx context.Context, startDir string) error {
 		cfg.AllowedUsers = map[string]struct{}{strings.ToLower(user): struct{}{}}
 	}
 
-	logger, err := newEventLogger(repoRoot)
-	if err != nil {
-		return fmt.Errorf("initialize event log: %w", err)
-	}
-
 	st, err := state.Load(repoRoot)
 	if err != nil {
 		return err
@@ -136,6 +152,7 @@ func Run(ctx context.Context, startDir string) error {
 		cfg:      cfg,
 		runner:   agent.Runner{Command: cfg.AgentCommand},
 		logger:   logger,
+		runID:    runID,
 	}
 
 	fmt.Printf("repo: %s\n", repo.FullName())
@@ -151,9 +168,20 @@ func Run(ctx context.Context, startDir string) error {
 	})
 
 	for {
+		currentTick := tickSeq.Add(1)
+		o.tickSeq = currentTick
+		tickStart := time.Now()
+		o.logEvent("tick_start", "tick started", nil)
+
 		if err := o.tick(ctx); err != nil {
+			o.logEvent("tick_end", "tick failed", map[string]any{
+				"duration_ms": time.Since(tickStart).Milliseconds(),
+				"error":       err.Error(),
+			})
 			return err
 		}
+		o.logEvent("tick_end", "tick completed", map[string]any{"duration_ms": time.Since(tickStart).Milliseconds()})
+
 		o.state.UpdatedAt = time.Now().UTC()
 		if err := o.state.Save(o.repoRoot); err != nil {
 			return err
@@ -186,8 +214,22 @@ func (o *orchestrator) tick(ctx context.Context) error {
 	if len(prs) == 1 {
 		pr := prs[0]
 		if !o.cfg.BranchPattern.MatchString(pr.HeadRefName) {
-			return fmt.Errorf("open PR #%d branch %q does not match managed pattern %q", pr.Number, pr.HeadRefName, o.cfg.BranchPattern.String())
+			err := fmt.Errorf("open PR #%d branch %q does not match managed pattern %q", pr.Number, pr.HeadRefName, o.cfg.BranchPattern.String())
+			o.logEvent("invariant_decision", "managed branch policy failed", map[string]any{
+				"pass":             false,
+				"pr":               pr.Number,
+				"branch":           pr.HeadRefName,
+				"required_pattern": o.cfg.BranchPattern.String(),
+				"error":            err.Error(),
+			})
+			return err
 		}
+		o.logEvent("invariant_decision", "managed branch policy passed", map[string]any{
+			"pass":             true,
+			"pr":               pr.Number,
+			"branch":           pr.HeadRefName,
+			"required_pattern": o.cfg.BranchPattern.String(),
+		})
 		return o.handleManagedPR(ctx, pr.Number)
 	}
 
@@ -213,8 +255,21 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 		return fmt.Errorf("fetch origin before PR validation: %w", err)
 	}
 	if err := o.validateCheckoutMatchesPR(ctx, pr); err != nil {
+		o.logEvent("invariant_decision", "checkout synchronization failed", map[string]any{
+			"pass":         false,
+			"pr":           pr.Number,
+			"expected_ref": pr.HeadRefName,
+			"expected_oid": pr.HeadRefOid,
+			"error":        err.Error(),
+		})
 		return err
 	}
+	o.logEvent("invariant_decision", "checkout synchronization passed", map[string]any{
+		"pass":         true,
+		"pr":           pr.Number,
+		"expected_ref": pr.HeadRefName,
+		"expected_oid": pr.HeadRefOid,
+	})
 
 	o.state.ActivePR = pr.Number
 	o.state.ActiveBranch = pr.HeadRefName
@@ -331,15 +386,59 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		fmt.Printf("agent: running Codex (attempt %d/%d)\n", attempt+1, o.cfg.MaxRepairAttempts+1)
+		runStart := time.Now()
+		o.logEvent("agent_attempt", "running codex attempt", map[string]any{
+			"attempt":             attempt + 1,
+			"max_attempts":        o.cfg.MaxRepairAttempts + 1,
+			"expected_branch":     expectedBranch,
+			"require_commit_done": requireCommitForDone,
+			"allow_idle_on_main":  allowIdleOnMain,
+		})
+
 		result, err := o.runner.Run(ctx, currentPrompt)
 		if err != nil {
+			o.logEvent("agent_attempt", "codex attempt failed", map[string]any{
+				"attempt":      attempt + 1,
+				"duration_ms":  time.Since(runStart).Milliseconds(),
+				"error":        err.Error(),
+				"prompt_tail":  tailString(currentPrompt, 600),
+				"output_tail":  "",
+				"terminal":     "",
+				"terminal_set": false,
+			})
 			return agent.Result{}, "", fmt.Errorf("run codex agent: %w", err)
 		}
+		o.logEvent("agent_attempt", "codex attempt completed", map[string]any{
+			"attempt":      attempt + 1,
+			"duration_ms":  time.Since(runStart).Milliseconds(),
+			"output_tail":  tailString(result.RawOutput, 600),
+			"terminal":     string(result.Terminal.Type),
+			"terminal_set": result.Terminal.Type != "",
+		})
 
 		afterHead, validationErr := o.validatePostAgentState(ctx, result, expectedBranch, beforeHead, requireCommitForDone, allowIdleOnMain)
 		if validationErr == nil {
+			o.logEvent("invariant_decision", "post-agent validation passed", map[string]any{
+				"pass":                 true,
+				"attempt":              attempt + 1,
+				"expected_branch":      expectedBranch,
+				"before_head":          beforeHead,
+				"after_head":           afterHead,
+				"terminal":             string(result.Terminal.Type),
+				"terminal_has_changes": result.Terminal.Changes,
+			})
 			return result, afterHead, nil
 		}
+		o.logEvent("invariant_decision", "post-agent validation failed", map[string]any{
+			"pass":                 false,
+			"attempt":              attempt + 1,
+			"expected_branch":      expectedBranch,
+			"before_head":          beforeHead,
+			"after_head":           afterHead,
+			"terminal":             string(result.Terminal.Type),
+			"terminal_has_changes": result.Terminal.Changes,
+			"error":                validationErr.Error(),
+		})
 		if attempt >= o.cfg.MaxRepairAttempts {
 			return agent.Result{}, "", fmt.Errorf("agent failed validation after %d attempts: %w", attempt+1, validationErr)
 		}
@@ -438,47 +537,75 @@ func (o *orchestrator) validateCheckoutMatchesPR(ctx context.Context, pr github.
 func (o *orchestrator) ensureMainReady(ctx context.Context) error {
 	clean, status, err := git.IsClean(ctx, o.repoRoot)
 	if err != nil {
-		return fmt.Errorf("check working tree before main sync: %w", err)
+		wrapped := fmt.Errorf("check working tree before main sync: %w", err)
+		o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_clean", "error": wrapped.Error()})
+		return wrapped
 	}
 	if !clean {
-		return fmt.Errorf("cannot bootstrap new task with dirty working tree:\n%s", status)
+		wrapped := fmt.Errorf("cannot bootstrap new task with dirty working tree:\n%s", status)
+		o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_clean", "error": wrapped.Error()})
+		return wrapped
 	}
 
 	if err := git.FetchOrigin(ctx, o.repoRoot); err != nil {
-		return fmt.Errorf("fetch origin: %w", err)
+		wrapped := fmt.Errorf("fetch origin: %w", err)
+		o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "fetch_origin", "error": wrapped.Error()})
+		return wrapped
 	}
 
 	currentBranch, err := git.CurrentBranch(ctx, o.repoRoot)
 	if err != nil {
-		return fmt.Errorf("read current branch: %w", err)
+		wrapped := fmt.Errorf("read current branch: %w", err)
+		o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "read_branch", "error": wrapped.Error()})
+		return wrapped
 	}
 
 	mainRemoteRef := "origin/" + o.cfg.MainBranch
 	if currentBranch != o.cfg.MainBranch {
 		merged, err := git.IsAncestor(ctx, o.repoRoot, "HEAD", mainRemoteRef)
 		if err != nil {
-			return fmt.Errorf("check whether current branch is merged into %s: %w", mainRemoteRef, err)
+			wrapped := fmt.Errorf("check whether current branch is merged into %s: %w", mainRemoteRef, err)
+			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_merged", "branch": currentBranch, "target": mainRemoteRef, "error": wrapped.Error()})
+			return wrapped
 		}
 		if !merged {
-			return fmt.Errorf("current branch %q is not merged into %s; refusing to start a new task", currentBranch, mainRemoteRef)
+			wrapped := fmt.Errorf("current branch %q is not merged into %s; refusing to start a new task", currentBranch, mainRemoteRef)
+			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_merged", "branch": currentBranch, "target": mainRemoteRef, "error": wrapped.Error()})
+			return wrapped
 		}
 		if err := git.Checkout(ctx, o.repoRoot, o.cfg.MainBranch); err != nil {
-			return fmt.Errorf("checkout %s: %w", o.cfg.MainBranch, err)
+			wrapped := fmt.Errorf("checkout %s: %w", o.cfg.MainBranch, err)
+			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "checkout_main", "error": wrapped.Error()})
+			return wrapped
 		}
 	}
 
 	ahead, behind, err := git.AheadBehind(ctx, o.repoRoot, "HEAD", mainRemoteRef)
 	if err != nil {
-		return fmt.Errorf("compare HEAD with %s: %w", mainRemoteRef, err)
+		wrapped := fmt.Errorf("compare HEAD with %s: %w", mainRemoteRef, err)
+		o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "ahead_behind", "target": mainRemoteRef, "error": wrapped.Error()})
+		return wrapped
 	}
 	if ahead > 0 {
-		return fmt.Errorf("local %s is %d commit(s) ahead of %s; refusing automation", o.cfg.MainBranch, ahead, mainRemoteRef)
+		wrapped := fmt.Errorf("local %s is %d commit(s) ahead of %s; refusing automation", o.cfg.MainBranch, ahead, mainRemoteRef)
+		o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "ahead_behind", "ahead": ahead, "behind": behind, "target": mainRemoteRef, "error": wrapped.Error()})
+		return wrapped
 	}
 	if behind > 0 {
 		if err := git.PullFFOnly(ctx, o.repoRoot, "origin", o.cfg.MainBranch); err != nil {
-			return fmt.Errorf("fast-forward pull %s: %w", o.cfg.MainBranch, err)
+			wrapped := fmt.Errorf("fast-forward pull %s: %w", o.cfg.MainBranch, err)
+			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "pull_ff_only", "ahead": ahead, "behind": behind, "target": mainRemoteRef, "error": wrapped.Error()})
+			return wrapped
 		}
 	}
+	o.logEvent("invariant_decision", "main readiness passed", map[string]any{
+		"pass":           true,
+		"current_branch": currentBranch,
+		"main_branch":    o.cfg.MainBranch,
+		"main_remote":    mainRemoteRef,
+		"ahead":          ahead,
+		"behind":         behind,
+	})
 	return nil
 }
 
@@ -838,6 +965,17 @@ func limitString(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
+func tailString(s string, max int) string {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) <= max {
+		return trimmed
+	}
+	if max < 4 {
+		return trimmed[len(trimmed)-max:]
+	}
+	return "..." + trimmed[len(trimmed)-(max-3):]
+}
+
 func maxInt64(a, b int64) int64 {
 	if a > b {
 		return a
@@ -870,9 +1008,48 @@ func (o *orchestrator) logEvent(kind, message string, fields map[string]any) {
 	if o == nil || o.logger == nil {
 		return
 	}
-	if err := o.logger.log(kind, message, fields); err != nil {
+
+	enriched := map[string]any{
+		"run_id":   o.runID,
+		"tick_seq": o.tickSeq,
+	}
+	for k, v := range fields {
+		enriched[k] = v
+	}
+
+	if err := o.logger.log(kind, message, enriched); err != nil {
 		fmt.Printf("warn: event log write failed: %v\n", err)
 	}
+}
+
+func logCommandTrace(logger *eventLogger, runID string, tickSeq, commandSeq int64, component, name string, args []string, duration time.Duration, exitCode int, stdoutTail, stderrTail, errText string) {
+	if logger == nil {
+		return
+	}
+
+	fields := map[string]any{
+		"run_id":      runID,
+		"tick_seq":    tickSeq,
+		"command_seq": commandSeq,
+		"component":   component,
+		"name":        name,
+		"args":        append([]string(nil), args...),
+		"duration_ms": duration.Milliseconds(),
+		"exit_code":   exitCode,
+		"stdout_tail": stdoutTail,
+		"stderr_tail": stderrTail,
+	}
+	if strings.TrimSpace(errText) != "" {
+		fields["error"] = errText
+	}
+
+	if err := logger.log("command_trace", "command executed", fields); err != nil {
+		fmt.Printf("warn: event log write failed: %v\n", err)
+	}
+}
+
+func buildRunID() string {
+	return fmt.Sprintf("run-%s-pid-%d", time.Now().UTC().Format("20060102T150405.000000000Z"), os.Getpid())
 }
 
 func acquireLock(repoRoot string) (func(), error) {

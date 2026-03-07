@@ -337,6 +337,18 @@ Runtime logs print:
 
 The worker appends JSONL audit entries to `.simug/events.log`.
 
+High-fidelity trace coverage:
+
+- every `git`/`gh` command invocation is logged as `command_trace` with:
+  - `run_id`, `tick_seq`, `command_seq`,
+  - `component`, `name`, `args`,
+  - `duration_ms`, `exit_code`,
+  - `stdout_tail`, `stderr_tail`, optional `error`.
+- invariant checks emit explicit `invariant_decision` events with `pass=true/false` and stage-specific context.
+- tick boundaries emit `tick_start` / `tick_end` with duration and failure context.
+
+This enables deterministic reconstruction of a failed run without rerunning the worker.
+
 ## 15. Open Extensions
 
 - Label-based issue prioritization beyond authored-user filter

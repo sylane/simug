@@ -67,12 +67,12 @@ Status convention:
   - Scope: actionable commands only from allowed users and allowed verbs.
   - Done when: unauthorized or unsupported commands are ignored.
 
-- [ ] **Task 3.4: High-fidelity action trace log**
+- [x] **Task 3.4: High-fidelity action trace log**
   - Scope: append structured per-run/per-tick traces for every orchestrator action (git/gh calls, durations, exit codes, stderr/stdout tails, invariant decisions).
   - Done when: a failed run can be reconstructed from logs without rerunning.
 
 - [ ] **Task 3.5: Codex prompt/output archival**
-  - Scope: persist prompts sent to Codex and raw streamed output with correlation ids linked to PR/tick/attempt.
+  - Scope: persist prompts sent to Codex and raw streamed output with correlation ids linked to PR/tick/attempt (`run_id`, `tick_seq`, `command_seq` lineage).
   - Done when: protocol parsing failures and behavior regressions are diagnosable from artifacts.
 
 - [ ] **Task 3.6: Operator failure explainer**

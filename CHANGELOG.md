@@ -10,3 +10,4 @@ https://keepachangelog.com/en/1.1.0/
 ### Added
 
 - Initial changelog scaffold for `simug` task-based development workflow.
+- High-fidelity orchestrator tracing in `.simug/events.log` with per-run/per-tick command traces (`git`/`gh`), exit codes, stdout/stderr tails, and explicit invariant decision events.

@@ -1,8 +1,10 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -18,21 +20,78 @@ type commandRunner interface {
 	Run(ctx context.Context, dir, name string, args ...string) (string, error)
 }
 
+type CommandTrace struct {
+	Dir        string
+	Name       string
+	Args       []string
+	Duration   time.Duration
+	ExitCode   int
+	StdoutTail string
+	StderrTail string
+	Error      string
+}
+
+type commandError struct {
+	name     string
+	args     []string
+	cause    error
+	stdout   string
+	stderr   string
+	exitCode int
+}
+
+func (e *commandError) Error() string {
+	cmd := strings.TrimSpace(e.name + " " + strings.Join(e.args, " "))
+	detail := strings.TrimSpace(e.stderr)
+	if detail == "" {
+		detail = strings.TrimSpace(e.stdout)
+	}
+	if detail == "" {
+		return fmt.Sprintf("%s failed with exit code %d", cmd, e.exitCode)
+	}
+	return fmt.Sprintf("%s failed with exit code %d: %s", cmd, e.exitCode, detail)
+}
+
+func (e *commandError) Unwrap() error {
+	return e.cause
+}
+
 type osCommandRunner struct{}
 
 func (osCommandRunner) Run(ctx context.Context, dir, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	stdoutText := stdout.String()
+	stderrText := stderr.String()
 	if err != nil {
-		return "", fmt.Errorf("%s %s failed: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		exitCode := -1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		return stdoutText, &commandError{
+			name:     name,
+			args:     append([]string(nil), args...),
+			cause:    err,
+			stdout:   stdoutText,
+			stderr:   stderrText,
+			exitCode: exitCode,
+		}
 	}
-	return string(out), nil
+	return stdoutText, nil
 }
 
 var (
-	runnerMu sync.RWMutex
-	runner   commandRunner = osCommandRunner{}
+	runnerMu    sync.RWMutex
+	runner      commandRunner = osCommandRunner{}
+	traceHookMu sync.RWMutex
+	traceHook   func(CommandTrace)
 )
 
 func SetCommandRunnerForTest(r commandRunner) (restore func()) {
@@ -44,6 +103,18 @@ func SetCommandRunnerForTest(r commandRunner) (restore func()) {
 		runnerMu.Lock()
 		runner = prev
 		runnerMu.Unlock()
+	}
+}
+
+func SetCommandTraceHook(hook func(CommandTrace)) (restore func()) {
+	traceHookMu.Lock()
+	prev := traceHook
+	traceHook = hook
+	traceHookMu.Unlock()
+	return func() {
+		traceHookMu.Lock()
+		traceHook = prev
+		traceHookMu.Unlock()
 	}
 }
 
@@ -254,5 +325,53 @@ func run(ctx context.Context, dir, name string, args ...string) (string, error) 
 	runnerMu.RLock()
 	active := runner
 	runnerMu.RUnlock()
-	return active.Run(ctx, dir, name, args...)
+
+	start := time.Now()
+	out, err := active.Run(ctx, dir, name, args...)
+	trace := CommandTrace{
+		Dir:        dir,
+		Name:       name,
+		Args:       append([]string(nil), args...),
+		Duration:   time.Since(start),
+		ExitCode:   0,
+		StdoutTail: tailText(out, 400),
+	}
+	if err != nil {
+		trace.Error = err.Error()
+		trace.ExitCode = -1
+
+		var cmdErr *commandError
+		if errors.As(err, &cmdErr) {
+			trace.ExitCode = cmdErr.exitCode
+			trace.StdoutTail = tailText(cmdErr.stdout, 400)
+			trace.StderrTail = tailText(cmdErr.stderr, 400)
+		} else {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				trace.ExitCode = exitErr.ExitCode()
+			}
+		}
+	}
+	emitTrace(trace)
+	return out, err
+}
+
+func emitTrace(trace CommandTrace) {
+	traceHookMu.RLock()
+	hook := traceHook
+	traceHookMu.RUnlock()
+	if hook != nil {
+		hook(trace)
+	}
+}
+
+func tailText(s string, max int) string {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) <= max {
+		return trimmed
+	}
+	if max < 4 {
+		return trimmed[len(trimmed)-max:]
+	}
+	return "..." + trimmed[len(trimmed)-(max-3):]
 }
