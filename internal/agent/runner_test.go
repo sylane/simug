@@ -1,6 +1,11 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestParseActionsParsesProtocolLines(t *testing.T) {
 	actions, err := parseActions("SIMUG: {\"action\":\"comment\",\"body\":\"hi\"}\n")
@@ -42,5 +47,24 @@ func TestParseActionJSONReplyRequiresCommentID(t *testing.T) {
 	_, err := parseActionJSON(`{"action":"reply","body":"hello"}`)
 	if err == nil {
 		t.Fatalf("expected error for missing comment_id")
+	}
+}
+
+func TestRawOutputFromErrorReturnsRunnerOutput(t *testing.T) {
+	r := Runner{Command: `printf 'oops\n'`}
+	_, err := r.Run(context.Background(), "")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+
+	raw := RawOutputFromError(err)
+	if strings.TrimSpace(raw) != "oops" {
+		t.Fatalf("raw output = %q, want %q", strings.TrimSpace(raw), "oops")
+	}
+}
+
+func TestRawOutputFromErrorReturnsEmptyForNonRunError(t *testing.T) {
+	if got := RawOutputFromError(errors.New("boom")); got != "" {
+		t.Fatalf("expected empty output for non-run error, got %q", got)
 	}
 }

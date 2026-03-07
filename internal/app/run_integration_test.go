@@ -235,3 +235,105 @@ func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
 		t.Fatalf("expected at least one invariant_decision event")
 	}
 }
+
+func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"hello","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".simug", "events.log"))
+	if err != nil {
+		t.Fatalf("read events log: %v", err)
+	}
+
+	var archiveFields map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var entry struct {
+			Kind   string         `json:"kind"`
+			Fields map[string]any `json:"fields"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decode event log entry: %v", err)
+		}
+		if entry.Kind == "agent_archive" {
+			archiveFields = entry.Fields
+		}
+	}
+	if archiveFields == nil {
+		t.Fatalf("expected agent_archive event")
+	}
+
+	promptPath, _ := archiveFields["prompt_path"].(string)
+	outputPath, _ := archiveFields["output_path"].(string)
+	metadataPath, _ := archiveFields["metadata_path"].(string)
+	if promptPath == "" || outputPath == "" || metadataPath == "" {
+		t.Fatalf("archive event missing paths: %#v", archiveFields)
+	}
+
+	promptData, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatalf("read prompt archive: %v", err)
+	}
+	if !strings.Contains(string(promptData), "You are Codex running under simug orchestration.") {
+		t.Fatalf("unexpected prompt archive content: %s", string(promptData))
+	}
+
+	outputData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read output archive: %v", err)
+	}
+	if !strings.Contains(string(outputData), `SIMUG: {"action":"done","summary":"ok","changes":false}`) {
+		t.Fatalf("unexpected output archive content: %s", string(outputData))
+	}
+
+	var meta struct {
+		RunID          string `json:"run_id"`
+		TickSeq        int64  `json:"tick_seq"`
+		Attempt        int    `json:"attempt"`
+		ExpectedBranch string `json:"expected_branch"`
+	}
+	metaData, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("read metadata archive: %v", err)
+	}
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		t.Fatalf("decode metadata archive: %v", err)
+	}
+	if meta.RunID == "" || meta.TickSeq <= 0 || meta.Attempt != 1 {
+		t.Fatalf("unexpected archive metadata: %#v", meta)
+	}
+	if meta.ExpectedBranch != branch {
+		t.Fatalf("metadata expected branch=%q, want %q", meta.ExpectedBranch, branch)
+	}
+}

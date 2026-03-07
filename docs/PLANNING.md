@@ -71,12 +71,12 @@ Status convention:
   - Scope: append structured per-run/per-tick traces for every orchestrator action (git/gh calls, durations, exit codes, stderr/stdout tails, invariant decisions).
   - Done when: a failed run can be reconstructed from logs without rerunning.
 
-- [ ] **Task 3.5: Codex prompt/output archival**
+- [x] **Task 3.5: Codex prompt/output archival**
   - Scope: persist prompts sent to Codex and raw streamed output with correlation ids linked to PR/tick/attempt (`run_id`, `tick_seq`, `command_seq` lineage).
   - Done when: protocol parsing failures and behavior regressions are diagnosable from artifacts.
 
 - [ ] **Task 3.6: Operator failure explainer**
-  - Scope: add a command/flow to summarize last failure reason, violated invariant, and suggested next action from trace data.
+  - Scope: add a command/flow to summarize last failure reason, violated invariant, and suggested next action from trace data and `.simug/archive/agent/...` attempt artifacts.
   - Done when: operator can get actionable failure diagnosis in one command.
 
 ## Phase 4: Test Reliability

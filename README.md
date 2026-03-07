@@ -229,6 +229,7 @@ If more than one authored open PR exists, worker exits with a clear error to pre
 - `.simug/state.json` (persistent cursors and active PR state)
 - `.simug/lock` (single-process guard)
 - `.simug/events.log` (JSONL event/audit log)
+- `.simug/archive/agent/...` (per-attempt Codex prompt/output archival artifacts)
 
 `events.log` includes high-fidelity trace entries (`command_trace`, `invariant_decision`, `tick_start`, `tick_end`) with run/tick correlation IDs for post-failure reconstruction.
 

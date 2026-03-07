@@ -397,12 +397,40 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 
 		result, err := o.runner.Run(ctx, currentPrompt)
 		if err != nil {
+			rawOutput := agent.RawOutputFromError(err)
+			paths, archiveErr := o.archiveAgentAttempt(
+				attempt+1,
+				o.cfg.MaxRepairAttempts+1,
+				expectedBranch,
+				beforeHead,
+				"",
+				currentPrompt,
+				rawOutput,
+				"",
+				false,
+				err.Error(),
+				"",
+			)
+			if archiveErr != nil {
+				o.logEvent("agent_archive_error", "failed to archive codex attempt", map[string]any{
+					"attempt": attempt + 1,
+					"error":   archiveErr.Error(),
+				})
+			} else {
+				o.logEvent("agent_archive", "archived codex attempt artifacts", map[string]any{
+					"attempt":       attempt + 1,
+					"metadata_path": paths.MetadataPath,
+					"prompt_path":   paths.PromptPath,
+					"output_path":   paths.OutputPath,
+				})
+			}
+
 			o.logEvent("agent_attempt", "codex attempt failed", map[string]any{
 				"attempt":      attempt + 1,
 				"duration_ms":  time.Since(runStart).Milliseconds(),
 				"error":        err.Error(),
 				"prompt_tail":  tailString(currentPrompt, 600),
-				"output_tail":  "",
+				"output_tail":  tailString(rawOutput, 600),
 				"terminal":     "",
 				"terminal_set": false,
 			})
@@ -417,6 +445,33 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		})
 
 		afterHead, validationErr := o.validatePostAgentState(ctx, result, expectedBranch, beforeHead, requireCommitForDone, allowIdleOnMain)
+		paths, archiveErr := o.archiveAgentAttempt(
+			attempt+1,
+			o.cfg.MaxRepairAttempts+1,
+			expectedBranch,
+			beforeHead,
+			afterHead,
+			currentPrompt,
+			result.RawOutput,
+			string(result.Terminal.Type),
+			result.Terminal.Changes,
+			"",
+			errorText(validationErr),
+		)
+		if archiveErr != nil {
+			o.logEvent("agent_archive_error", "failed to archive codex attempt", map[string]any{
+				"attempt": attempt + 1,
+				"error":   archiveErr.Error(),
+			})
+		} else {
+			o.logEvent("agent_archive", "archived codex attempt artifacts", map[string]any{
+				"attempt":       attempt + 1,
+				"metadata_path": paths.MetadataPath,
+				"prompt_path":   paths.PromptPath,
+				"output_path":   paths.OutputPath,
+			})
+		}
+
 		if validationErr == nil {
 			o.logEvent("invariant_decision", "post-agent validation passed", map[string]any{
 				"pass":                 true,
@@ -981,6 +1036,13 @@ func maxInt64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func sortedKeys(m map[string]struct{}) []string {

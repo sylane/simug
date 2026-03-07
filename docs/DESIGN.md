@@ -346,6 +346,10 @@ High-fidelity trace coverage:
   - `stdout_tail`, `stderr_tail`, optional `error`.
 - invariant checks emit explicit `invariant_decision` events with `pass=true/false` and stage-specific context.
 - tick boundaries emit `tick_start` / `tick_end` with duration and failure context.
+- each Codex attempt is archived under `.simug/archive/agent/<run_id>/tick-<tick_seq>/attempt-<n>/` with:
+  - `prompt.txt` (exact prompt input),
+  - `raw_output.txt` (raw agent stdout payload),
+  - `metadata.json` (attempt/run/tick/branch/error correlation fields).
 
 This enables deterministic reconstruction of a failed run without rerunning the worker.
 

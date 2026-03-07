@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -44,6 +45,33 @@ type Runner struct {
 	Command string
 }
 
+type RunError struct {
+	Cause     error
+	RawOutput string
+}
+
+func (e *RunError) Error() string {
+	if e == nil || e.Cause == nil {
+		return ""
+	}
+	return e.Cause.Error()
+}
+
+func (e *RunError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func RawOutputFromError(err error) string {
+	var runErr *RunError
+	if errors.As(err, &runErr) {
+		return runErr.RawOutput
+	}
+	return ""
+}
+
 func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 	if strings.TrimSpace(r.Command) == "" {
 		return Result{}, fmt.Errorf("agent command is empty (set SIMUG_AGENT_CMD)")
@@ -54,12 +82,18 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 	out, err := cmd.CombinedOutput()
 	raw := string(out)
 	if err != nil {
-		return Result{}, fmt.Errorf("agent command failed: %w: %s", err, strings.TrimSpace(raw))
+		return Result{}, &RunError{
+			Cause:     fmt.Errorf("agent command failed: %w: %s", err, strings.TrimSpace(raw)),
+			RawOutput: raw,
+		}
 	}
 
 	actions, err := parseActions(raw)
 	if err != nil {
-		return Result{}, err
+		return Result{}, &RunError{
+			Cause:     err,
+			RawOutput: raw,
+		}
 	}
 
 	terminalCount := 0
@@ -71,7 +105,10 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 		}
 	}
 	if terminalCount != 1 {
-		return Result{}, fmt.Errorf("agent protocol requires exactly one terminal action (done or idle), got %d", terminalCount)
+		return Result{}, &RunError{
+			Cause:     fmt.Errorf("agent protocol requires exactly one terminal action (done or idle), got %d", terminalCount),
+			RawOutput: raw,
+		}
 	}
 
 	return Result{RawOutput: raw, Actions: actions, Terminal: terminal}, nil
