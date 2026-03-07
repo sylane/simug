@@ -10,10 +10,21 @@ import (
 	"simug/internal/runtimepaths"
 )
 
+type Mode string
+
+const (
+	ModeManagedPR     Mode = "managed_pr"
+	ModeIssueTriage   Mode = "issue_triage"
+	ModeTaskBootstrap Mode = "task_bootstrap"
+)
+
 type State struct {
 	Repo                string    `json:"repo"`
 	ActivePR            int       `json:"active_pr"`
 	ActiveBranch        string    `json:"active_branch"`
+	Mode                Mode      `json:"mode"`
+	ActiveIssue         int       `json:"active_issue"`
+	PendingTaskID       string    `json:"pending_task_id"`
 	LastCommentID       int64     `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
 	LastIssueCommentID  int64     `json:"last_issue_comment_id"`
 	LastReviewCommentID int64     `json:"last_review_comment_id"`
@@ -31,7 +42,9 @@ func Load(repoRoot string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &State{}, nil
+			st := &State{}
+			st.Normalize()
+			return st, nil
 		}
 		return nil, fmt.Errorf("read state file: %w", err)
 	}
@@ -40,10 +53,13 @@ func Load(repoRoot string) (*State, error) {
 	if err := json.Unmarshal(data, &st); err != nil {
 		return nil, fmt.Errorf("decode state file: %w", err)
 	}
+	st.Normalize()
 	return &st, nil
 }
 
 func (s *State) Save(repoRoot string) error {
+	s.Normalize()
+
 	dir, err := runtimepaths.EnsureDataDir(repoRoot)
 	if err != nil {
 		return fmt.Errorf("resolve runtime dir: %w", err)
@@ -58,4 +74,27 @@ func (s *State) Save(repoRoot string) error {
 		return fmt.Errorf("write state file: %w", err)
 	}
 	return nil
+}
+
+func (s *State) Normalize() {
+	if s == nil {
+		return
+	}
+	switch s.Mode {
+	case "", ModeManagedPR, ModeIssueTriage, ModeTaskBootstrap:
+	default:
+		s.Mode = ""
+	}
+
+	if s.ActivePR != 0 {
+		s.Mode = ModeManagedPR
+	}
+	if s.Mode == "" {
+		s.Mode = ModeIssueTriage
+	}
+
+	if s.Mode == ModeManagedPR {
+		s.ActiveIssue = 0
+		s.PendingTaskID = ""
+	}
 }

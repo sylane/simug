@@ -115,12 +115,12 @@ Status convention:
 
 ## Phase 5: Issue-Driven Intake Before Next Task (Priority)
 
-- [ ] **Task 5.1: Loop-mode state model for issue-first intake**
+- [x] **Task 5.1: Loop-mode state model for issue-first intake**
   - Scope: add explicit orchestrator modes (`managed_pr`, `issue_triage`, `task_bootstrap`) and state persistence for active issue/pending task metadata.
   - Done when: mode transitions are deterministic and restart-safe across PR merge -> issue triage -> task bootstrap.
 
 - [ ] **Task 5.2: Authored-issue discovery and deterministic selection**
-  - Scope: list open issues authored by current authenticated user and select one deterministically before next-task bootstrap.
+  - Scope: list open issues authored by current authenticated user and select one deterministically before next-task bootstrap, using persisted mode/issue/task metadata introduced in 5.1.
   - Done when: no-PR flow always evaluates authored issues first with predictable ordering.
 
 - [ ] **Task 5.3: Issue triage prompt and protocol extension**

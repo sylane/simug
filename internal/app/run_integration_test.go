@@ -148,6 +148,20 @@ func TestRunOneManagedTickSuccessWithMockedCommands(t *testing.T) {
 	if err := Run(ctx, tmp); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.Mode != "managed_pr" {
+		t.Fatalf("mode=%q, want managed_pr", st.Mode)
+	}
 }
 
 func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
@@ -407,5 +421,53 @@ func TestRunRoutesManagerPrefixAndQuarantinesUnprefixedOutput(t *testing.T) {
 	}
 	if !foundQuarantine {
 		t.Fatalf("expected agent_quarantine event")
+	}
+}
+
+func TestRunNoOpenPRIdlePersistsIssueTriageMode(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("git", "status", "--porcelain"):                                     "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                         "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"): "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                         "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		Mode     string `json:"mode"`
+		ActivePR int    `json:"active_pr"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.Mode != "issue_triage" {
+		t.Fatalf("mode=%q, want issue_triage", st.Mode)
+	}
+	if st.ActivePR != 0 {
+		t.Fatalf("active_pr=%d, want 0", st.ActivePR)
 	}
 }

@@ -230,6 +230,15 @@ func (o *orchestrator) tick(ctx context.Context) error {
 			"branch":           pr.HeadRefName,
 			"required_pattern": o.cfg.BranchPattern.String(),
 		})
+		if o.state.Mode != state.ModeManagedPR {
+			o.logEvent("mode_transition", "switching to managed_pr mode", map[string]any{
+				"from": string(o.state.Mode),
+				"to":   string(state.ModeManagedPR),
+			})
+		}
+		o.state.Mode = state.ModeManagedPR
+		o.state.ActiveIssue = 0
+		o.state.PendingTaskID = ""
 		return o.handleManagedPR(ctx, pr.Number)
 	}
 
@@ -239,6 +248,16 @@ func (o *orchestrator) tick(ctx context.Context) error {
 	}
 	o.state.ActivePR = 0
 	o.state.ActiveBranch = ""
+	if o.state.Mode == state.ModeManagedPR {
+		o.logEvent("mode_transition", "managed PR closed, entering issue_triage mode", map[string]any{
+			"from": string(state.ModeManagedPR),
+			"to":   string(state.ModeIssueTriage),
+		})
+		o.state.Mode = state.ModeIssueTriage
+	}
+	if o.state.Mode == "" {
+		o.state.Mode = state.ModeIssueTriage
+	}
 	return o.handleNoOpenPR(ctx)
 }
 
@@ -323,6 +342,29 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 }
 
 func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
+	if o.state.Mode == "" || o.state.Mode == state.ModeManagedPR {
+		o.logEvent("mode_transition", "initializing issue-first intake mode", map[string]any{
+			"from": string(o.state.Mode),
+			"to":   string(state.ModeIssueTriage),
+		})
+		o.state.Mode = state.ModeIssueTriage
+	}
+
+	if o.state.Mode == state.ModeIssueTriage {
+		// Task 5.2 will provide authored-issue selection. Until then, deterministically
+		// advance to task bootstrap after explicit issue-triage mode entry.
+		o.logEvent("mode_transition", "no issue triage selector yet, falling through to task_bootstrap", map[string]any{
+			"from": string(state.ModeIssueTriage),
+			"to":   string(state.ModeTaskBootstrap),
+		})
+		o.state.Mode = state.ModeTaskBootstrap
+		o.state.ActiveIssue = 0
+		o.state.PendingTaskID = ""
+	}
+	if o.state.Mode != state.ModeTaskBootstrap {
+		return fmt.Errorf("unexpected no-PR mode %q", o.state.Mode)
+	}
+
 	if err := o.ensureMainReady(ctx); err != nil {
 		return err
 	}
@@ -344,6 +386,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		o.logEvent("agent_idle", "bootstrap agent returned idle", map[string]any{"reason": strings.TrimSpace(result.Terminal.Reason)})
 		o.state.ActivePR = 0
 		o.state.ActiveBranch = ""
+		o.state.Mode = state.ModeIssueTriage
 		return nil
 	}
 
@@ -371,6 +414,9 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	o.state.ActivePR = prNumber
 	o.state.ActiveBranch = expectedBranch
+	o.state.Mode = state.ModeManagedPR
+	o.state.ActiveIssue = 0
+	o.state.PendingTaskID = ""
 	fmt.Printf("status: created managed PR #%d (%s)\n", prNumber, expectedBranch)
 	o.logEvent("pr_created", "managed pull request created", map[string]any{"pr": prNumber, "branch": expectedBranch})
 
