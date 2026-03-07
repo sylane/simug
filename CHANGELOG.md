@@ -24,3 +24,4 @@ https://keepachangelog.com/en/1.1.0/
 - Orchestrator-owned issue triage analysis comments with deterministic marker metadata (`simug:issue-triage:v1`) and duplicate-skip idempotency checks before posting.
 - Deterministic planning insertion engine for `issue_report.needs_task=true`, adding issue-derived TODO entries after the last DONE task with suffix-based IDs (`...a`, `...b`, ...), markdown-structure guards, source markers, and persisted `pending_task_id`.
 - Bootstrap prompt targeting for issue-derived flow: when `pending_task_id` is present, simug skips re-triage and instructs Codex to start explicitly from that task before other backlog items.
+- Issue-to-PR backlink comments after issue-derived PR creation, with deterministic backlink markers and authenticated-author duplicate suppression.

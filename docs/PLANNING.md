@@ -139,12 +139,12 @@ Status convention:
   - Scope: after planning insertion, bootstrap development using the inserted `pending_task_id` as explicit kickoff target while preserving normal workflow task execution invariants.
   - Done when: issue-derived tasks produce managed branches/PRs through standard orchestration validation.
 
-- [ ] **Task 5.7: PR reference back-linking to issue**
+- [x] **Task 5.7: PR reference back-linking to issue**
   - Scope: after PR creation from issue-derived task, orchestrator posts issue comment linking PR number/url and inserted task ID, using `active_issue` + `pending_task_id` context.
   - Done when: issue timeline shows explicit trace from triage decision to implementation PR.
 
 - [ ] **Task 5.8: Issue-first integration and failure tests**
-  - Scope: add tests for authored issue filtering, triage report parsing/validation, planning insertion, issue commenting, and fallback to normal next-task flow when no issue is actionable.
+  - Scope: add tests for authored issue filtering, triage report parsing/validation, planning insertion, issue commenting, PR-backlink idempotency, and fallback to normal next-task flow when no issue is actionable.
   - Done when: issue-first behavior is covered by deterministic automated tests.
 
 ## Phase 6: Self-Hosting Readiness (Priority)

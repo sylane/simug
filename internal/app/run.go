@@ -484,6 +484,9 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create pull request: %w", err)
 	}
+	if err := o.maybePostIssueDerivedPRBacklink(ctx, prNumber); err != nil {
+		return err
+	}
 
 	o.state.ActivePR = prNumber
 	o.state.ActiveBranch = expectedBranch
@@ -802,6 +805,62 @@ func buildIssueTriageCommentBody(report agent.Action) string {
 		b.WriteString(strings.TrimSpace(report.TaskBody))
 		b.WriteString("\n")
 	}
+	return b.String()
+}
+
+func (o *orchestrator) maybePostIssueDerivedPRBacklink(ctx context.Context, prNumber int) error {
+	issueNumber := o.state.ActiveIssue
+	taskID := strings.TrimSpace(o.state.PendingTaskID)
+	if issueNumber <= 0 || taskID == "" {
+		return nil
+	}
+
+	marker := issuePRBacklinkMarker(issueNumber, taskID, prNumber)
+	comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), issueNumber)
+	if err != nil {
+		return fmt.Errorf("list issue comments for PR backlink marker on issue #%d: %w", issueNumber, err)
+	}
+	for _, comment := range comments {
+		if comment.User.Login != o.user {
+			continue
+		}
+		if strings.Contains(comment.Body, marker) {
+			o.logEvent("issue_backlink", "PR backlink marker already present; skipping duplicate issue comment", map[string]any{
+				"issue":   issueNumber,
+				"task_id": taskID,
+				"pr":      prNumber,
+				"marker":  marker,
+			})
+			return nil
+		}
+	}
+
+	body := buildIssuePRBacklinkCommentBody(o.repo.FullName(), issueNumber, taskID, prNumber)
+	o.logEvent("issue_backlink", "posting issue-to-PR backlink comment", map[string]any{
+		"issue":   issueNumber,
+		"task_id": taskID,
+		"pr":      prNumber,
+		"marker":  marker,
+	})
+	if err := github.CommentIssue(ctx, o.repoRoot, issueNumber, limitString(body, 60000)); err != nil {
+		return fmt.Errorf("post issue-to-PR backlink comment on issue #%d: %w", issueNumber, err)
+	}
+	return nil
+}
+
+func issuePRBacklinkMarker(issueNumber int, taskID string, prNumber int) string {
+	return fmt.Sprintf("<!-- simug:issue-pr-link:v1 issue=%d task=%s pr=%d -->", issueNumber, strings.TrimSpace(taskID), prNumber)
+}
+
+func buildIssuePRBacklinkCommentBody(repoFullName string, issueNumber int, taskID string, prNumber int) string {
+	url := fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, prNumber)
+	var b strings.Builder
+	b.WriteString(issuePRBacklinkMarker(issueNumber, taskID, prNumber))
+	b.WriteString("\n")
+	b.WriteString("### simug implementation PR link\n")
+	b.WriteString(fmt.Sprintf("- Issue: #%d\n", issueNumber))
+	b.WriteString(fmt.Sprintf("- Task: Task %s\n", strings.TrimSpace(taskID)))
+	b.WriteString(fmt.Sprintf("- PR: #%d (%s)\n", prNumber, url))
 	return b.String()
 }
 
