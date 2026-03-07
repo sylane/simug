@@ -26,3 +26,4 @@ https://keepachangelog.com/en/1.1.0/
 - Bootstrap prompt targeting for issue-derived flow: when `pending_task_id` is present, simug skips re-triage and instructs Codex to start explicitly from that task before other backlog items.
 - Issue-to-PR backlink comments after issue-derived PR creation, with deterministic backlink markers and authenticated-author duplicate suppression.
 - Expanded issue-first regression coverage for insertion failures, spoofed-marker handling, pending-task bootstrap targeting, and fallback/no-actionable-issue paths.
+- Added one-shot runtime mode (`simug run --once`) with explicit CLI parsing and exit codes for supervisor-friendly single-tick self-host loops.

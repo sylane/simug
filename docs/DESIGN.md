@@ -117,6 +117,7 @@ Implementation note (current milestone): mode persistence, authored-issue discov
 ## 6. Continuous Monitoring Loop
 
 Loop runs until process cancel (SIGINT/SIGTERM) or hard inconsistency.
+In one-shot mode (`simug run --once`), exactly one tick is executed, state is persisted, and process exits with deterministic status code mapping.
 
 Per cycle:
 

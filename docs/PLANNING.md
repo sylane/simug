@@ -149,12 +149,12 @@ Status convention:
 
 ## Phase 6: Self-Hosting Readiness (Priority)
 
-- [ ] **Task 6.1: Single-task self-host run mode**
+- [x] **Task 6.1: Single-task self-host run mode**
   - Scope: add a dedicated mode (for example `simug run --once`) that completes one task/tick, persists state, then exits with explicit status codes for supervisor scripts.
   - Done when: orchestrator can safely stop after one self-development unit of work without losing progress context.
 
 - [ ] **Task 6.2: Self-host supervisor wrapper script**
-  - Scope: add a wrapper script for simug-on-simug development that rebuilds binary, starts one-shot mode, captures logs/artifacts, and restarts/resumes deterministically.
+  - Scope: add a wrapper script for simug-on-simug development that rebuilds binary, starts one-shot mode (`simug run --once`), captures logs/artifacts, and restarts/resumes deterministically using explicit exit-code outcomes.
   - Done when: operator can run repeatable self-host loops with one command.
 
 - [ ] **Task 6.3: Crash-safe in-flight attempt journal**

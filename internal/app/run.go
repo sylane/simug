@@ -73,6 +73,15 @@ type eventPoll struct {
 }
 
 func Run(ctx context.Context, startDir string) error {
+	return run(ctx, startDir, false)
+}
+
+// RunOnce executes exactly one orchestration tick, persists state, and exits.
+func RunOnce(ctx context.Context, startDir string) error {
+	return run(ctx, startDir, true)
+}
+
+func run(ctx context.Context, startDir string, once bool) error {
 	repoRoot, err := git.RepoRoot(ctx, startDir)
 	if err != nil {
 		return err
@@ -165,6 +174,7 @@ func Run(ctx context.Context, startDir string) error {
 		"poll_interval":    cfg.PollInterval.String(),
 		"command_authors":  sortedKeys(cfg.AllowedUsers),
 		"allowed_commands": sortedKeys(cfg.AllowedVerbs),
+		"once_mode":        once,
 	})
 
 	for {
@@ -185,6 +195,9 @@ func Run(ctx context.Context, startDir string) error {
 		o.state.UpdatedAt = time.Now().UTC()
 		if err := o.state.Save(o.repoRoot); err != nil {
 			return err
+		}
+		if once {
+			return nil
 		}
 
 		select {
