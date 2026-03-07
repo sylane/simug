@@ -153,12 +153,12 @@ Status convention:
   - Scope: add a dedicated mode (for example `simug run --once`) that completes one task/tick, persists state, then exits with explicit status codes for supervisor scripts.
   - Done when: orchestrator can safely stop after one self-development unit of work without losing progress context.
 
-- [ ] **Task 6.2: Self-host supervisor wrapper script**
+- [x] **Task 6.2: Self-host supervisor wrapper script**
   - Scope: add a wrapper script for simug-on-simug development that rebuilds binary, starts one-shot mode (`simug run --once`), captures logs/artifacts, and restarts/resumes deterministically using explicit exit-code outcomes.
   - Done when: operator can run repeatable self-host loops with one command.
 
 - [ ] **Task 6.3: Crash-safe in-flight attempt journal**
-  - Scope: persist attempt context before/after each Codex invocation (expected branch, pre/post head, attempt index, prompt hash, runtime mode).
+  - Scope: persist attempt context before/after each Codex invocation (expected branch, pre/post head, attempt index, prompt hash, runtime mode), aligned with wrapper snapshot/log artifacts.
   - Done when: orchestrator restart can deterministically recover interrupted attempts.
 
 - [ ] **Task 6.4: Restart recovery state machine**

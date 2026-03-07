@@ -27,3 +27,4 @@ https://keepachangelog.com/en/1.1.0/
 - Issue-to-PR backlink comments after issue-derived PR creation, with deterministic backlink markers and authenticated-author duplicate suppression.
 - Expanded issue-first regression coverage for insertion failures, spoofed-marker handling, pending-task bootstrap targeting, and fallback/no-actionable-issue paths.
 - Added one-shot runtime mode (`simug run --once`) with explicit CLI parsing and exit codes for supervisor-friendly single-tick self-host loops.
+- Added `scripts/self-host-loop.sh` wrapper to rebuild/run one-shot iterations, snapshot `.simug/state.json`, and capture per-iteration logs under `.simug/selfhost/<timestamp>/`.

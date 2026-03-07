@@ -205,6 +205,8 @@ If `gh auth status` reports `token ... is invalid` but `curl` cannot resolve `ap
 
 ```bash
 simug run
+# one-shot mode (single tick):
+simug run --once
 # or with absolute path:
 /path/to/simug/bin/simug run
 ```
@@ -227,6 +229,22 @@ A PR is managed only when:
 - its head branch matches the managed pattern (default `agent/<timestamp>-<slug>`).
 
 If more than one authored open PR exists, worker exits with a clear error to prevent desync.
+
+## Self-Host Loop Helper
+
+For simug-on-simug development, use the wrapper script:
+
+```bash
+scripts/self-host-loop.sh --iterations 5
+```
+
+What it does per iteration:
+
+- rebuilds `bin/simug`,
+- runs `./bin/simug run --once`,
+- captures stdout/stderr and state snapshots under `.simug/selfhost/<timestamp>/`.
+
+The script exits immediately on the first non-zero `simug` exit code so supervisor behavior stays deterministic.
 
 ## Runtime Files
 

@@ -52,6 +52,7 @@ Task ID must come from `docs/PLANNING.md` (example: `Task 2.3`).
 Use this loop while developing `simug` with `simug`:
 
 1. Start `simug` locally in this repo.
+   - For supervised one-shot loops, use `scripts/self-host-loop.sh --iterations <n>`.
 2. Ensure managed PR/cardinality checks pass.
 3. Drive work from GitHub using authorized `/agent ...` commands.
 4. Let orchestrator invoke Codex with the protocol contract.
