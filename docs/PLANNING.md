@@ -135,12 +135,12 @@ Status convention:
   - Scope: insert new TODO tasks in `docs/PLANNING.md` immediately after last DONE task with stable ID derivation (suffix policy) and markdown integrity checks, driven by validated `issue_report.needs_task=true` proposals.
   - Done when: issue-required tasks are injected deterministically without corrupting planning structure.
 
-- [ ] **Task 5.6: Bootstrap from issue-derived task**
+- [x] **Task 5.6: Bootstrap from issue-derived task**
   - Scope: after planning insertion, bootstrap development using the inserted `pending_task_id` as explicit kickoff target while preserving normal workflow task execution invariants.
   - Done when: issue-derived tasks produce managed branches/PRs through standard orchestration validation.
 
 - [ ] **Task 5.7: PR reference back-linking to issue**
-  - Scope: after PR creation from issue-derived task, orchestrator posts issue comment linking PR number/url and inserted task ID.
+  - Scope: after PR creation from issue-derived task, orchestrator posts issue comment linking PR number/url and inserted task ID, using `active_issue` + `pending_task_id` context.
   - Done when: issue timeline shows explicit trace from triage decision to implementation PR.
 
 - [ ] **Task 5.8: Issue-first integration and failure tests**

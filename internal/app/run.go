@@ -354,6 +354,15 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		return err
 	}
 
+	if o.state.Mode == state.ModeIssueTriage && strings.TrimSpace(o.state.PendingTaskID) != "" {
+		o.logEvent("mode_transition", "pending issue-derived task exists; skipping issue triage", map[string]any{
+			"from":            string(state.ModeIssueTriage),
+			"to":              string(state.ModeTaskBootstrap),
+			"pending_task_id": o.state.PendingTaskID,
+		})
+		o.state.Mode = state.ModeTaskBootstrap
+	}
+
 	if o.state.Mode == state.ModeIssueTriage {
 		issues, err := github.ListOpenIssuesByAuthor(ctx, o.repoRoot, o.repo.FullName(), o.user)
 		if err != nil {
@@ -439,7 +448,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	}
 
 	expectedBranch := o.generateBranchName()
-	prompt := o.buildBootstrapPrompt(expectedBranch, "")
+	prompt := o.buildBootstrapPrompt(expectedBranch, o.state.PendingTaskID, "")
 	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, nil)
 	if err != nil {
 		return err
@@ -1122,12 +1131,15 @@ func (o *orchestrator) buildIssueTriagePrompt(issue github.Issue, repairInstruct
 	return b.String()
 }
 
-func (o *orchestrator) buildBootstrapPrompt(expectedBranch, repairInstruction string) string {
+func (o *orchestrator) buildBootstrapPrompt(expectedBranch, pendingTaskID, repairInstruction string) string {
 	var b strings.Builder
 	b.WriteString("You are Codex running under simug orchestration.\n")
 	b.WriteString("No managed open PR currently exists. Start the next task from docs/PLANNING.md and docs/WORKFLOW.md.\n")
 	b.WriteString("Hard rules:\n")
 	b.WriteString(fmt.Sprintf("- Create and use branch EXACTLY named: %s\n", expectedBranch))
+	if strings.TrimSpace(pendingTaskID) != "" {
+		b.WriteString(fmt.Sprintf("- Start specifically with Task %s from docs/PLANNING.md before any other pending task.\n", strings.TrimSpace(pendingTaskID)))
+	}
 	b.WriteString("- Implement the next task and commit changes locally when complete.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
 	b.WriteString("- Do NOT push. Do NOT create PR.\n")

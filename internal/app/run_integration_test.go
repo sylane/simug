@@ -478,6 +478,68 @@ func TestRunNoOpenPRIdlePersistsIssueTriageMode(t *testing.T) {
 	}
 }
 
+func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Task 5.4a"; then printf 'SIMUG: {"action":"idle","reason":"pending-task bootstrap targeted"}\n'; else printf 'SIMUG: {"action":"done","summary":"missing pending task target","changes":false}\n'; fi`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "issue_triage",
+  "pending_task_id": "5.4a",
+  "updated_at": "2026-03-07T00:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("git", "status", "--porcelain"):                                     "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                         "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"): "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                         "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		Mode          string `json:"mode"`
+		PendingTaskID string `json:"pending_task_id"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.Mode != "issue_triage" {
+		t.Fatalf("mode=%q, want issue_triage", st.Mode)
+	}
+	if st.PendingTaskID != "5.4a" {
+		t.Fatalf("pending_task_id=%q, want 5.4a", st.PendingTaskID)
+	}
+}
+
 func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)

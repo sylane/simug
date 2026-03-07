@@ -112,7 +112,7 @@ If no authored open issues exist, bootstrap the next pending planning task direc
 
 Codex can propose PR title/body through protocol; orchestrator uses those when creating the PR.
 
-Implementation note (current milestone): mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, orchestrator-owned triage issue comments, and deterministic planning insertion are active and restart-safe. Current `issue_triage` behavior validates one deterministic `issue_report` per selected issue, posts a marker-tagged analysis comment idempotently, inserts issue-derived tasks in `docs/PLANNING.md` with suffix-based IDs and source markers, and records `pending_task_id`; explicit bootstrap targeting policy from this pending task remains a follow-up task.
+Implementation note (current milestone): mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, orchestrator-owned triage issue comments, deterministic planning insertion, and pending-task bootstrap targeting are active and restart-safe. Current `issue_triage` behavior validates one deterministic `issue_report` per selected issue, posts a marker-tagged analysis comment idempotently, inserts issue-derived tasks in `docs/PLANNING.md` with suffix-based IDs and source markers, records `pending_task_id`, and uses that task ID as explicit bootstrap kickoff target.
 
 ## 6. Continuous Monitoring Loop
 

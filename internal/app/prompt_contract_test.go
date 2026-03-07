@@ -51,7 +51,7 @@ func TestBuildBootstrapPromptContainsProtocolContract(t *testing.T) {
 	}
 
 	expectedBranch := "agent/20260307-120000-next-task"
-	prompt := o.buildBootstrapPrompt(expectedBranch, "")
+	prompt := o.buildBootstrapPrompt(expectedBranch, "", "")
 	required := []string{
 		fmt.Sprintf("Create and use branch EXACTLY named: %s", expectedBranch),
 		"Do NOT push. Do NOT create PR.",
@@ -66,6 +66,20 @@ func TestBuildBootstrapPromptContainsProtocolContract(t *testing.T) {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in bootstrap prompt:\n%s", needle, prompt)
 		}
+	}
+}
+
+func TestBuildBootstrapPromptIncludesPendingTaskTarget(t *testing.T) {
+	o := orchestrator{
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+
+	expectedBranch := "agent/20260307-120000-next-task"
+	prompt := o.buildBootstrapPrompt(expectedBranch, "5.4a", "")
+	if !strings.Contains(prompt, "Start specifically with Task 5.4a from docs/PLANNING.md before any other pending task.") {
+		t.Fatalf("missing pending task targeting instruction in bootstrap prompt:\n%s", prompt)
 	}
 }
 
