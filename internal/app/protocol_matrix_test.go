@@ -41,19 +41,19 @@ func TestRunAgentWithValidationProtocolMatrix(t *testing.T) {
 		{
 			name:         "malformed json protocol line",
 			agentCmd:     `printf 'note\nSIMUG: {bad-json}\n'`,
-			wantErr:      "run codex agent",
+			wantErr:      "execution/protocol errors",
 			wantErrCause: "invalid json",
 		},
 		{
 			name:         "missing terminal action",
 			agentCmd:     `printf 'SIMUG: {"action":"comment","body":"only-comment"}\n'`,
-			wantErr:      "run codex agent",
+			wantErr:      "execution/protocol errors",
 			wantErrCause: "exactly one terminal action",
 		},
 		{
 			name:         "multiple terminal actions",
 			agentCmd:     `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\nSIMUG: {"action":"idle","reason":"x"}\n'`,
-			wantErr:      "run codex agent",
+			wantErr:      "execution/protocol errors",
 			wantErrCause: "exactly one terminal action",
 		},
 	}

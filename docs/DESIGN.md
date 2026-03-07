@@ -258,9 +258,10 @@ Repair is bounded by `max_repair_attempts`. Exceeding bound causes hard failure 
 - Dirty tree after Codex run
 - Missing expected commit after `changes=true`
 - Branch naming non-compliance
+- Codex execution/protocol failures during attempt (for example malformed protocol JSON or missing/multiple terminal actions)
 - Issue report missing required fields or minor mode validation mismatch
 
-Action: bounded repair prompt to Codex.
+Action: bounded repair prompt to Codex (including execution/protocol failure retries up to configured limit).
 
 ### 11.2 Hard-stop failures
 

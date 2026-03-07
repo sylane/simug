@@ -434,7 +434,18 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 				"terminal":     "",
 				"terminal_set": false,
 			})
-			return agent.Result{}, "", fmt.Errorf("run codex agent: %w", err)
+			o.logEvent("invariant_decision", "agent execution/protocol failed", map[string]any{
+				"pass":    false,
+				"attempt": attempt + 1,
+				"error":   err.Error(),
+			})
+
+			if attempt >= o.cfg.MaxRepairAttempts {
+				return agent.Result{}, "", fmt.Errorf("agent failed after %d attempts with execution/protocol errors: %w", attempt+1, err)
+			}
+
+			currentPrompt = o.buildRepairPrompt(expectedBranch, err)
+			continue
 		}
 		o.logEvent("agent_attempt", "codex attempt completed", map[string]any{
 			"attempt":      attempt + 1,
