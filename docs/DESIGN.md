@@ -112,7 +112,7 @@ If no authored open issues exist, bootstrap the next pending planning task direc
 
 Codex can propose PR title/body through protocol; orchestrator uses those when creating the PR.
 
-Implementation note (current milestone): mode persistence, authored-issue discovery/selection, and issue-triage prompt/report validation are active and restart-safe. Current `issue_triage` behavior validates and consumes one deterministic `issue_report` per selected issue and records the accepted report in local orchestrator events; orchestrator-owned issue comments and planning insertion remain follow-up tasks.
+Implementation note (current milestone): mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, and orchestrator-owned triage issue comments are active and restart-safe. Current `issue_triage` behavior validates one deterministic `issue_report` per selected issue, posts a marker-tagged analysis comment idempotently, and records decisions in local events; planning insertion remains a follow-up task.
 
 ## 6. Continuous Monitoring Loop
 
@@ -135,7 +135,7 @@ Per cycle:
 6. If in `issue_triage` mode:
    - build issue triage prompt for selected authored issue,
    - run Codex and require one `issue_report`,
-   - record accepted triage report and prepare downstream orchestrator actions (issue commenting/insertion).
+   - post orchestrator-owned issue analysis comment with deterministic triage marker metadata.
 7. If in `task_bootstrap` mode:
    - run bootstrap prompt and follow branch/commit/cleanliness validations,
    - push/create PR via orchestrator only.

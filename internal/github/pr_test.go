@@ -146,3 +146,15 @@ func TestListOpenIssuesByAuthorFiltersPRsAndSortsByNumber(t *testing.T) {
 		t.Fatalf("issues not sorted/filtered as expected: %#v", issues)
 	}
 }
+
+func TestCommentIssueUsesGhIssueComment(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh issue comment 7 --body triage-body": "",
+	}}
+	restore := SetCommandRunnerForTest(r)
+	defer restore()
+
+	if err := CommentIssue(context.Background(), "/tmp", 7, "triage-body"); err != nil {
+		t.Fatalf("CommentIssue returned error: %v", err)
+	}
+}

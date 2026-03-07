@@ -21,3 +21,4 @@ https://keepachangelog.com/en/1.1.0/
 - Explicit persisted loop-mode state model (`managed_pr`, `issue_triage`, `task_bootstrap`) with deterministic mode transitions and restart-safe metadata fields (`active_issue`, `pending_task_id`).
 - Authored open-issue discovery for no-PR intake via `gh api`, with PR filtering, deterministic oldest-first selection (lowest issue number), and persisted `active_issue` candidate tracking across issue-first bootstrap fallback.
 - Issue-triage prompt path with strict `issue_report` protocol parsing/validation (mode-compatible actions, selected issue matching, non-empty analysis, task metadata requirements) plus integration coverage for valid and invalid triage flows.
+- Orchestrator-owned issue triage analysis comments with deterministic marker metadata (`simug:issue-triage:v1`) and duplicate-skip idempotency checks before posting.

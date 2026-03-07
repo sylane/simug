@@ -247,6 +247,11 @@ func CommentPR(ctx context.Context, repoRoot string, number int, body string) er
 	return err
 }
 
+func CommentIssue(ctx context.Context, repoRoot string, number int, body string) error {
+	_, err := run(ctx, repoRoot, "gh", "issue", "comment", strconv.Itoa(number), "--body", body)
+	return err
+}
+
 func ReplyToReviewComment(ctx context.Context, repoRoot, repoFullName string, commentID int64, body string) error {
 	path := fmt.Sprintf("repos/%s/pulls/comments/%d/replies", repoFullName, commentID)
 	_, err := run(ctx, repoRoot, "gh", "api", path, "--method", "POST", "-f", "body="+body)

@@ -97,3 +97,35 @@ func TestValidateIssueTriageResultRejectsNeedsTaskWithoutMetadata(t *testing.T) 
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestBuildIssueTriageCommentBodyIncludesMarkerAndTaskProposal(t *testing.T) {
+	report := agent.Action{
+		Type:        agent.ActionIssueReport,
+		IssueNumber: 9,
+		Relevant:    true,
+		Analysis:    "A new planning task is needed.",
+		NeedsTask:   true,
+		TaskTitle:   "Add replay marker checks",
+		TaskBody:    "Persist triage marker and skip duplicates.",
+	}
+
+	body := buildIssueTriageCommentBody(report)
+	required := []string{
+		issueTriageMarker(report),
+		"### simug issue triage analysis",
+		"- Issue: #9",
+		"- Relevant: true",
+		"- Needs task: true",
+		"Analysis:",
+		"A new planning task is needed.",
+		"Proposed task title:",
+		"Add replay marker checks",
+		"Proposed task body:",
+		"Persist triage marker and skip duplicates.",
+	}
+	for _, needle := range required {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("missing %q in issue triage comment body:\n%s", needle, body)
+		}
+	}
+}

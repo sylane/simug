@@ -127,12 +127,12 @@ Status convention:
   - Scope: add issue triage prompt path and protocol support for `issue_report` (relevant/not relevant, analysis, needs_task, task proposal metadata) while preserving explicit `SIMUG:` / `SIMUG_MANAGER:` channel rules; consume persisted deterministic issue candidate (`active_issue`) selected in 5.2.
   - Done when: orchestrator validates and consumes issue triage reports reliably.
 
-- [ ] **Task 5.4: Orchestrator-owned issue analysis comments**
+- [x] **Task 5.4: Orchestrator-owned issue analysis comments**
   - Scope: convert validated `issue_report` outputs into orchestrator-posted comments on the issue, including triage marker metadata for replay/idempotency.
   - Done when: each triaged issue receives a deterministic machine-auditable analysis comment.
 
 - [ ] **Task 5.5: Planning insertion engine for issue-derived tasks**
-  - Scope: insert new TODO tasks in `docs/PLANNING.md` immediately after last DONE task with stable ID derivation (suffix policy) and markdown integrity checks.
+  - Scope: insert new TODO tasks in `docs/PLANNING.md` immediately after last DONE task with stable ID derivation (suffix policy) and markdown integrity checks, driven by validated `issue_report.needs_task=true` proposals.
   - Done when: issue-required tasks are injected deterministically without corrupting planning structure.
 
 - [ ] **Task 5.6: Bootstrap from issue-derived task**

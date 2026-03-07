@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"simug/internal/agent"
 	"simug/internal/git"
 	"simug/internal/github"
 )
@@ -482,6 +483,15 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
 
 	tmp := t.TempDir()
+	report := agent.Action{
+		Type:        agent.ActionIssueReport,
+		IssueNumber: 4,
+		Relevant:    true,
+		Analysis:    "needs task",
+		NeedsTask:   true,
+		TaskTitle:   "x",
+		TaskBody:    "y",
+	}
 	runner := mockCommandRunner{responses: map[string]string{
 		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
 		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
@@ -492,11 +502,13 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 			`{"number":4,"title":"older","state":"OPEN","user":{"login":"alice"}},` +
 			`{"number":7,"title":"middle","state":"OPEN","user":{"login":"alice"}}` +
 			`]]`,
-		commandKey("git", "status", "--porcelain"):                                     "\n",
-		commandKey("git", "fetch", "--prune", "origin"):                                "",
-		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                         "main\n",
-		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"): "0 0\n",
-		commandKey("git", "rev-parse", "HEAD"):                                         "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/4/comments", "--paginate", "--slurp"): "[]",
+		commandKey("gh", "issue", "comment", "4", "--body", buildIssueTriageCommentBody(report)):  "",
+		commandKey("git", "status", "--porcelain"):                                                "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                           "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                    "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):            "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                    "abcdef\n",
 	}}
 
 	restoreGit := git.SetCommandRunnerForTest(runner)
@@ -565,5 +577,92 @@ func TestRunNoOpenPRIssueTriageRejectsMissingIssueReport(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exactly one issue_report") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunNoOpenPRIssueTriageSkipsDuplicateMarkerComment(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":false,"analysis":"already handled","needs_task":false}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+
+	tmp := t.TempDir()
+	report := agent.Action{
+		Type:        agent.ActionIssueReport,
+		IssueNumber: 4,
+		Relevant:    false,
+		Analysis:    "already handled",
+		NeedsTask:   false,
+	}
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[[` +
+			`{"number":4,"title":"older","state":"OPEN","user":{"login":"alice"}}` +
+			`]]`,
+		commandKey("gh", "api", "repos/example/simug/issues/4/comments", "--paginate", "--slurp"): `[[` +
+			`{"id":1001,"body":"` + issueTriageMarker(report) + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}` +
+			`]]`,
+		commandKey("git", "status", "--porcelain"):                                     "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                         "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"): "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                         "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+}
+
+func TestRunNoOpenPRIssueTriageIgnoresMarkerFromOtherAuthor(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":false,"analysis":"still comment","needs_task":false}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+
+	tmp := t.TempDir()
+	report := agent.Action{
+		Type:        agent.ActionIssueReport,
+		IssueNumber: 4,
+		Relevant:    false,
+		Analysis:    "still comment",
+		NeedsTask:   false,
+	}
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[[` +
+			`{"number":4,"title":"older","state":"OPEN","user":{"login":"alice"}}` +
+			`]]`,
+		commandKey("gh", "api", "repos/example/simug/issues/4/comments", "--paginate", "--slurp"): `[[` +
+			`{"id":1001,"body":"` + issueTriageMarker(report) + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"mallory"}}` +
+			`]]`,
+		commandKey("gh", "issue", "comment", "4", "--body", buildIssueTriageCommentBody(report)): "",
+		commandKey("git", "status", "--porcelain"):                                               "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                          "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                   "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):           "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                   "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
 	}
 }

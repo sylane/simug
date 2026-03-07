@@ -403,6 +403,9 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 				"task_body":   limitString(strings.TrimSpace(report.TaskBody), 2000),
 				"active_mode": string(state.ModeIssueTriage),
 			})
+			if err := o.ensureIssueTriageComment(ctx, report); err != nil {
+				return err
+			}
 		}
 
 		o.logEvent("mode_transition", "issue triage complete, transitioning to task_bootstrap", map[string]any{
@@ -717,6 +720,66 @@ func validateIssueTriageResult(result agent.Result, expectedIssue int) (agent.Ac
 	}
 
 	return report, nil
+}
+
+func (o *orchestrator) ensureIssueTriageComment(ctx context.Context, report agent.Action) error {
+	marker := issueTriageMarker(report)
+	comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), report.IssueNumber)
+	if err != nil {
+		return fmt.Errorf("list issue comments for triage marker on issue #%d: %w", report.IssueNumber, err)
+	}
+	for _, comment := range comments {
+		if comment.User.Login != o.user {
+			continue
+		}
+		if strings.Contains(comment.Body, marker) {
+			o.logEvent("issue_triage_comment", "triage marker already present; skipping duplicate issue comment", map[string]any{
+				"issue":  report.IssueNumber,
+				"marker": marker,
+			})
+			return nil
+		}
+	}
+
+	body := buildIssueTriageCommentBody(report)
+	o.logEvent("issue_triage_comment", "posting deterministic issue triage analysis comment", map[string]any{
+		"issue":      report.IssueNumber,
+		"marker":     marker,
+		"needs_task": report.NeedsTask,
+		"relevant":   report.Relevant,
+	})
+	if err := github.CommentIssue(ctx, o.repoRoot, report.IssueNumber, limitString(body, 60000)); err != nil {
+		return fmt.Errorf("post issue triage comment on issue #%d: %w", report.IssueNumber, err)
+	}
+	return nil
+}
+
+func issueTriageMarker(report agent.Action) string {
+	return fmt.Sprintf("<!-- simug:issue-triage:v1 issue=%d relevant=%t needs_task=%t -->", report.IssueNumber, report.Relevant, report.NeedsTask)
+}
+
+func buildIssueTriageCommentBody(report agent.Action) string {
+	var b strings.Builder
+	b.WriteString(issueTriageMarker(report))
+	b.WriteString("\n")
+	b.WriteString("### simug issue triage analysis\n")
+	b.WriteString(fmt.Sprintf("- Issue: #%d\n", report.IssueNumber))
+	b.WriteString(fmt.Sprintf("- Relevant: %t\n", report.Relevant))
+	b.WriteString(fmt.Sprintf("- Needs task: %t\n", report.NeedsTask))
+	b.WriteString("\n")
+	b.WriteString("Analysis:\n")
+	b.WriteString(strings.TrimSpace(report.Analysis))
+	b.WriteString("\n")
+	if report.NeedsTask {
+		b.WriteString("\n")
+		b.WriteString("Proposed task title:\n")
+		b.WriteString(strings.TrimSpace(report.TaskTitle))
+		b.WriteString("\n\n")
+		b.WriteString("Proposed task body:\n")
+		b.WriteString(strings.TrimSpace(report.TaskBody))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func (o *orchestrator) validateCheckoutMatchesPR(ctx context.Context, pr github.PullRequest) error {
