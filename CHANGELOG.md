@@ -22,3 +22,4 @@ https://keepachangelog.com/en/1.1.0/
 - Authored open-issue discovery for no-PR intake via `gh api`, with PR filtering, deterministic oldest-first selection (lowest issue number), and persisted `active_issue` candidate tracking across issue-first bootstrap fallback.
 - Issue-triage prompt path with strict `issue_report` protocol parsing/validation (mode-compatible actions, selected issue matching, non-empty analysis, task metadata requirements) plus integration coverage for valid and invalid triage flows.
 - Orchestrator-owned issue triage analysis comments with deterministic marker metadata (`simug:issue-triage:v1`) and duplicate-skip idempotency checks before posting.
+- Deterministic planning insertion engine for `issue_report.needs_task=true`, adding issue-derived TODO entries after the last DONE task with suffix-based IDs (`...a`, `...b`, ...), markdown-structure guards, source markers, and persisted `pending_task_id`.

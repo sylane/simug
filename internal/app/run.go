@@ -360,6 +360,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			return fmt.Errorf("list authored open issues: %w", err)
 		}
 		o.state.ActiveIssue = 0
+		o.state.PendingTaskID = ""
 		var selected *github.Issue
 		if len(issues) > 0 {
 			selected = &issues[0]
@@ -406,6 +407,20 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			if err := o.ensureIssueTriageComment(ctx, report); err != nil {
 				return err
 			}
+			o.state.PendingTaskID = ""
+			if report.NeedsTask {
+				taskID, inserted, err := ensureIssueDerivedPlanningTask(o.repoRoot, report)
+				if err != nil {
+					return fmt.Errorf("insert issue-derived planning task: %w", err)
+				}
+				o.state.PendingTaskID = taskID
+				o.logEvent("planning_insertion", "processed issue-derived planning task", map[string]any{
+					"issue":    report.IssueNumber,
+					"task_id":  taskID,
+					"inserted": inserted,
+					"title":    limitString(strings.TrimSpace(report.TaskTitle), 200),
+				})
+			}
 		}
 
 		o.logEvent("mode_transition", "issue triage complete, transitioning to task_bootstrap", map[string]any{
@@ -413,7 +428,6 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			"to":   string(state.ModeTaskBootstrap),
 		})
 		o.state.Mode = state.ModeTaskBootstrap
-		o.state.PendingTaskID = ""
 	}
 	if o.state.Mode != state.ModeTaskBootstrap {
 		return fmt.Errorf("unexpected no-PR mode %q", o.state.Mode)

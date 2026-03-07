@@ -131,12 +131,12 @@ Status convention:
   - Scope: convert validated `issue_report` outputs into orchestrator-posted comments on the issue, including triage marker metadata for replay/idempotency.
   - Done when: each triaged issue receives a deterministic machine-auditable analysis comment.
 
-- [ ] **Task 5.5: Planning insertion engine for issue-derived tasks**
+- [x] **Task 5.5: Planning insertion engine for issue-derived tasks**
   - Scope: insert new TODO tasks in `docs/PLANNING.md` immediately after last DONE task with stable ID derivation (suffix policy) and markdown integrity checks, driven by validated `issue_report.needs_task=true` proposals.
   - Done when: issue-required tasks are injected deterministically without corrupting planning structure.
 
 - [ ] **Task 5.6: Bootstrap from issue-derived task**
-  - Scope: after planning insertion, bootstrap development using the inserted task exactly as normal workflow task execution.
+  - Scope: after planning insertion, bootstrap development using the inserted `pending_task_id` as explicit kickoff target while preserving normal workflow task execution invariants.
   - Done when: issue-derived tasks produce managed branches/PRs through standard orchestration validation.
 
 - [ ] **Task 5.7: PR reference back-linking to issue**

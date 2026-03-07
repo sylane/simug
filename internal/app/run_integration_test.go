@@ -483,6 +483,25 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
 
 	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs dir: %v", err)
+	}
+	initialPlanning := strings.Join([]string{
+		"# Plan",
+		"",
+		"- [x] **Task 5.4: Existing done task**",
+		"  - Scope: done scope",
+		"  - Done when: done",
+		"",
+		"- [ ] **Task 5.6: Existing todo task**",
+		"  - Scope: todo scope",
+		"  - Done when: todo",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmp, "docs", "PLANNING.md"), []byte(initialPlanning), 0o644); err != nil {
+		t.Fatalf("write planning file: %v", err)
+	}
+
 	report := agent.Action{
 		Type:        agent.ActionIssueReport,
 		IssueNumber: 4,
@@ -528,8 +547,9 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 		t.Fatalf("read state file: %v", err)
 	}
 	var st struct {
-		Mode        string `json:"mode"`
-		ActiveIssue int    `json:"active_issue"`
+		Mode          string `json:"mode"`
+		ActiveIssue   int    `json:"active_issue"`
+		PendingTaskID string `json:"pending_task_id"`
 	}
 	if err := json.Unmarshal(stateData, &st); err != nil {
 		t.Fatalf("decode state file: %v", err)
@@ -539,6 +559,17 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	}
 	if st.ActiveIssue != 4 {
 		t.Fatalf("active_issue=%d, want 4", st.ActiveIssue)
+	}
+	if st.PendingTaskID != "5.4a" {
+		t.Fatalf("pending_task_id=%q, want 5.4a", st.PendingTaskID)
+	}
+
+	planningData, err := os.ReadFile(filepath.Join(tmp, "docs", "PLANNING.md"))
+	if err != nil {
+		t.Fatalf("read planning file: %v", err)
+	}
+	if !strings.Contains(string(planningData), "- [ ] **Task 5.4a: x**") {
+		t.Fatalf("expected issue-derived task insertion in planning:\n%s", string(planningData))
 	}
 }
 
