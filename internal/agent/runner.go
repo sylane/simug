@@ -19,21 +19,28 @@ const (
 type ActionType string
 
 const (
-	ActionComment ActionType = "comment"
-	ActionReply   ActionType = "reply"
-	ActionDone    ActionType = "done"
-	ActionIdle    ActionType = "idle"
+	ActionComment     ActionType = "comment"
+	ActionReply       ActionType = "reply"
+	ActionIssueReport ActionType = "issue_report"
+	ActionDone        ActionType = "done"
+	ActionIdle        ActionType = "idle"
 )
 
 type Action struct {
-	Type      ActionType
-	Body      string
-	CommentID int64
-	Summary   string
-	Changes   bool
-	PRTitle   string
-	PRBody    string
-	Reason    string
+	Type        ActionType
+	Body        string
+	CommentID   int64
+	Summary     string
+	Changes     bool
+	PRTitle     string
+	PRBody      string
+	Reason      string
+	IssueNumber int
+	Relevant    bool
+	Analysis    string
+	NeedsTask   bool
+	TaskTitle   string
+	TaskBody    string
 }
 
 type Result struct {
@@ -215,6 +222,28 @@ func parseActionJSON(raw string) (Action, error) {
 		a.Changes = changes
 		a.PRTitle = stringField(payload, "pr_title")
 		a.PRBody = stringField(payload, "pr_body")
+	case ActionIssueReport:
+		issueNumber, err := int64Field(payload, "issue_number")
+		if err != nil {
+			return Action{}, fmt.Errorf("issue_report action invalid issue_number: %w", err)
+		}
+		if issueNumber <= 0 {
+			return Action{}, fmt.Errorf("issue_report action requires positive issue_number")
+		}
+		relevant, err := boolField(payload, "relevant")
+		if err != nil {
+			return Action{}, fmt.Errorf("issue_report action invalid relevant: %w", err)
+		}
+		needsTask, err := boolField(payload, "needs_task")
+		if err != nil {
+			return Action{}, fmt.Errorf("issue_report action invalid needs_task: %w", err)
+		}
+		a.IssueNumber = int(issueNumber)
+		a.Relevant = relevant
+		a.Analysis = stringField(payload, "analysis")
+		a.NeedsTask = needsTask
+		a.TaskTitle = stringField(payload, "task_title")
+		a.TaskBody = stringField(payload, "task_body")
 	case ActionIdle:
 		a.Reason = stringField(payload, "reason")
 	default:
@@ -250,4 +279,16 @@ func int64Field(payload map[string]any, key string) (int64, error) {
 	default:
 		return 0, fmt.Errorf("unsupported type %T", v)
 	}
+}
+
+func boolField(payload map[string]any, key string) (bool, error) {
+	v, ok := payload[key]
+	if !ok {
+		return false, fmt.Errorf("missing field %s", key)
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("unsupported type %T", v)
+	}
+	return b, nil
 }

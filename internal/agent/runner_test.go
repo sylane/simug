@@ -86,6 +86,29 @@ func TestParseActionJSONReplyRequiresCommentID(t *testing.T) {
 	}
 }
 
+func TestParseActionJSONIssueReport(t *testing.T) {
+	a, err := parseActionJSON(`{"action":"issue_report","issue_number":42,"relevant":true,"analysis":"Looks valid","needs_task":true,"task_title":"Add guard","task_body":"Implement checks"}`)
+	if err != nil {
+		t.Fatalf("parseActionJSON returned error: %v", err)
+	}
+	if a.Type != ActionIssueReport {
+		t.Fatalf("got type %q, want %q", a.Type, ActionIssueReport)
+	}
+	if a.IssueNumber != 42 || !a.Relevant || !a.NeedsTask {
+		t.Fatalf("unexpected issue_report fields: %#v", a)
+	}
+	if a.TaskTitle != "Add guard" || a.TaskBody != "Implement checks" {
+		t.Fatalf("unexpected issue task metadata: %#v", a)
+	}
+}
+
+func TestParseActionJSONIssueReportRequiresIssueNumber(t *testing.T) {
+	_, err := parseActionJSON(`{"action":"issue_report","relevant":true,"analysis":"ok","needs_task":false}`)
+	if err == nil {
+		t.Fatalf("expected error for missing issue_number")
+	}
+}
+
 func TestRawOutputFromErrorReturnsRunnerOutput(t *testing.T) {
 	r := Runner{Command: `printf 'oops\n'`}
 	_, err := r.Run(context.Background(), "")

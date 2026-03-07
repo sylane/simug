@@ -65,7 +65,7 @@ func TestPromptTuningHarnessRecoversFromProtocolFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false)
+	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil)
 	if err != nil {
 		t.Fatalf("runAgentWithValidation returned error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestPromptTuningHarnessRecoversFromValidationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false)
+	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil)
 	if err != nil {
 		t.Fatalf("runAgentWithValidation returned error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestPromptTuningHarnessFailsAfterBoundedProtocolRetries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false)
+	_, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil)
 	if err == nil {
 		t.Fatalf("expected error")
 	}

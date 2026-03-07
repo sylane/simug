@@ -69,6 +69,35 @@ func TestBuildBootstrapPromptContainsProtocolContract(t *testing.T) {
 	}
 }
 
+func TestBuildIssueTriagePromptContainsProtocolContract(t *testing.T) {
+	o := orchestrator{
+		repo: git.Repo{Owner: "example", Name: "simug"},
+	}
+
+	issue := github.Issue{
+		Number: 17,
+		Title:  "Improve issue intake",
+		Body:   "Need deterministic triage.",
+	}
+	prompt := o.buildIssueTriagePrompt(issue, "")
+	required := []string{
+		"Perform issue triage for the selected authored issue.",
+		"Do NOT create commits in issue triage mode.",
+		"Emit exactly one issue_report action before terminal action.",
+		"Terminal protocol action must be exactly one of done or idle.",
+		"SIMUG_MANAGER: <human-friendly manager message>",
+		`SIMUG: {"action":"issue_report","issue_number":123,"relevant":true,"analysis":"...","needs_task":true,"task_title":"...","task_body":"..."}`,
+		`SIMUG: {"action":"done","summary":"issue triaged","changes":false}`,
+		"Selected issue: #17",
+		"Issue title: Improve issue intake",
+	}
+	for _, needle := range required {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("missing %q in issue triage prompt:\n%s", needle, prompt)
+		}
+	}
+}
+
 func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
 	o := orchestrator{
 		cfg: config{

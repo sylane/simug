@@ -123,12 +123,12 @@ Status convention:
   - Scope: list open issues authored by current authenticated user and select one deterministically before next-task bootstrap, using persisted mode/issue/task metadata introduced in 5.1.
   - Done when: no-PR flow always evaluates authored issues first with predictable ordering.
 
-- [ ] **Task 5.3: Issue triage prompt and protocol extension**
+- [x] **Task 5.3: Issue triage prompt and protocol extension**
   - Scope: add issue triage prompt path and protocol support for `issue_report` (relevant/not relevant, analysis, needs_task, task proposal metadata) while preserving explicit `SIMUG:` / `SIMUG_MANAGER:` channel rules; consume persisted deterministic issue candidate (`active_issue`) selected in 5.2.
   - Done when: orchestrator validates and consumes issue triage reports reliably.
 
 - [ ] **Task 5.4: Orchestrator-owned issue analysis comments**
-  - Scope: convert `issue_report` outputs into orchestrator-posted comments on the issue, including triage marker metadata for replay/idempotency.
+  - Scope: convert validated `issue_report` outputs into orchestrator-posted comments on the issue, including triage marker metadata for replay/idempotency.
   - Done when: each triaged issue receives a deterministic machine-auditable analysis comment.
 
 - [ ] **Task 5.5: Planning insertion engine for issue-derived tasks**

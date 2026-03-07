@@ -479,7 +479,7 @@ func TestRunNoOpenPRIdlePersistsIssueTriageMode(t *testing.T) {
 
 func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
 
 	tmp := t.TempDir()
 	runner := mockCommandRunner{responses: map[string]string{
@@ -527,5 +527,43 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	}
 	if st.ActiveIssue != 4 {
 		t.Fatalf("active_issue=%d, want 4", st.ActiveIssue)
+	}
+}
+
+func TestRunNoOpenPRIssueTriageRejectsMissingIssueReport(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"triaged","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[[` +
+			`{"number":4,"title":"older","state":"OPEN","user":{"login":"alice"}}` +
+			`]]`,
+		commandKey("git", "status", "--porcelain"):                                     "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                         "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"): "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                         "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := Run(ctx, tmp)
+	if err == nil {
+		t.Fatalf("expected issue triage validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), "exactly one issue_report") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -134,6 +134,7 @@ type PullRequest struct {
 type Issue struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
+	Body   string `json:"body"`
 	State  string `json:"state"`
 	Author struct {
 		Login string `json:"login"`
@@ -304,6 +305,7 @@ func ListOpenIssuesByAuthor(ctx context.Context, repoRoot, repoFullName, author 
 	type rawIssue struct {
 		Number int    `json:"number"`
 		Title  string `json:"title"`
+		Body   string `json:"body"`
 		State  string `json:"state"`
 		User   struct {
 			Login string `json:"login"`
@@ -324,6 +326,7 @@ func ListOpenIssuesByAuthor(ctx context.Context, repoRoot, repoFullName, author 
 		issue := Issue{
 			Number: raw.Number,
 			Title:  raw.Title,
+			Body:   raw.Body,
 			State:  raw.State,
 		}
 		issue.Author.Login = raw.User.Login

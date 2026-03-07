@@ -75,7 +75,7 @@ func TestRunAgentWithValidationProtocolMatrix(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			result, afterHead, err := o.runAgentWithValidation(ctx, "prompt", expectedBranch, beforeHead, false, false)
+			result, afterHead, err := o.runAgentWithValidation(ctx, "prompt", expectedBranch, beforeHead, false, false, nil)
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q", tc.wantErr)

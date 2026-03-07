@@ -316,7 +316,7 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	}
 
 	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false)
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil)
 	if err != nil {
 		return err
 	}
@@ -350,14 +350,19 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		o.state.Mode = state.ModeIssueTriage
 	}
 
+	if err := o.ensureMainReady(ctx); err != nil {
+		return err
+	}
+
 	if o.state.Mode == state.ModeIssueTriage {
 		issues, err := github.ListOpenIssuesByAuthor(ctx, o.repoRoot, o.repo.FullName(), o.user)
 		if err != nil {
 			return fmt.Errorf("list authored open issues: %w", err)
 		}
 		o.state.ActiveIssue = 0
+		var selected *github.Issue
 		if len(issues) > 0 {
-			selected := issues[0]
+			selected = &issues[0]
 			o.state.ActiveIssue = selected.Number
 			o.logEvent("issue_selection", "selected authored issue candidate for triage", map[string]any{
 				"issue": selected.Number,
@@ -369,9 +374,38 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			})
 		}
 
-		// Task 5.3 will provide issue-triage prompt execution. Until then, deterministically
-		// advance to task bootstrap after selecting the issue candidate.
-		o.logEvent("mode_transition", "no issue triage selector yet, falling through to task_bootstrap", map[string]any{
+		if selected != nil {
+			beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
+			if err != nil {
+				return fmt.Errorf("read main HEAD before issue triage: %w", err)
+			}
+
+			var report agent.Action
+			prompt := o.buildIssueTriagePrompt(*selected, "")
+			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, func(result agent.Result) error {
+				r, validateErr := validateIssueTriageResult(result, selected.Number)
+				if validateErr != nil {
+					return validateErr
+				}
+				report = r
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
+			o.logEvent("issue_triage_report", "issue triage report accepted", map[string]any{
+				"issue":       report.IssueNumber,
+				"relevant":    report.Relevant,
+				"needs_task":  report.NeedsTask,
+				"analysis":    limitString(strings.TrimSpace(report.Analysis), 2000),
+				"task_title":  limitString(strings.TrimSpace(report.TaskTitle), 200),
+				"task_body":   limitString(strings.TrimSpace(report.TaskBody), 2000),
+				"active_mode": string(state.ModeIssueTriage),
+			})
+		}
+
+		o.logEvent("mode_transition", "issue triage complete, transitioning to task_bootstrap", map[string]any{
 			"from": string(state.ModeIssueTriage),
 			"to":   string(state.ModeTaskBootstrap),
 		})
@@ -382,10 +416,6 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		return fmt.Errorf("unexpected no-PR mode %q", o.state.Mode)
 	}
 
-	if err := o.ensureMainReady(ctx); err != nil {
-		return err
-	}
-
 	beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
 	if err != nil {
 		return fmt.Errorf("read main HEAD before agent run: %w", err)
@@ -393,7 +423,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	expectedBranch := o.generateBranchName()
 	prompt := o.buildBootstrapPrompt(expectedBranch, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true)
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, nil)
 	if err != nil {
 		return err
 	}
@@ -445,7 +475,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	return nil
 }
 
-func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool) (agent.Result, string, error) {
+func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, validateResult func(agent.Result) error) (agent.Result, string, error) {
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		fmt.Printf("agent: running Codex (attempt %d/%d)\n", attempt+1, o.cfg.MaxRepairAttempts+1)
@@ -534,6 +564,9 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		}
 
 		afterHead, validationErr := o.validatePostAgentState(ctx, result, expectedBranch, beforeHead, requireCommitForDone, allowIdleOnMain)
+		if validationErr == nil && validateResult != nil {
+			validationErr = validateResult(result)
+		}
 		paths, archiveErr := o.archiveAgentAttempt(
 			attempt+1,
 			o.cfg.MaxRepairAttempts+1,
@@ -605,7 +638,7 @@ func (o *orchestrator) validatePostAgentState(ctx context.Context, result agent.
 		if branch != expectedBranch {
 			return "", fmt.Errorf("expected current branch %q, got %q", expectedBranch, branch)
 		}
-		if !o.cfg.BranchPattern.MatchString(branch) {
+		if expectedBranch != o.cfg.MainBranch && !o.cfg.BranchPattern.MatchString(branch) {
 			return "", fmt.Errorf("branch %q does not match required pattern %q", branch, o.cfg.BranchPattern.String())
 		}
 	}
@@ -638,6 +671,52 @@ func (o *orchestrator) validatePostAgentState(ctx context.Context, result agent.
 	}
 
 	return afterHead, nil
+}
+
+func validateIssueTriageResult(result agent.Result, expectedIssue int) (agent.Action, error) {
+	reportCount := 0
+	reportIndex := -1
+	terminalIndex := -1
+	var report agent.Action
+
+	for i, a := range result.Actions {
+		switch a.Type {
+		case agent.ActionIssueReport:
+			reportCount++
+			report = a
+			reportIndex = i
+		case agent.ActionDone, agent.ActionIdle:
+			terminalIndex = i
+		default:
+			return agent.Action{}, fmt.Errorf("issue_triage mode does not allow action %q", a.Type)
+		}
+	}
+
+	if reportCount != 1 {
+		return agent.Action{}, fmt.Errorf("issue_triage mode requires exactly one issue_report action, got %d", reportCount)
+	}
+	if terminalIndex < 0 {
+		return agent.Action{}, fmt.Errorf("issue_triage mode requires terminal action after issue_report")
+	}
+	if reportIndex > terminalIndex {
+		return agent.Action{}, fmt.Errorf("issue_report action must appear before terminal action")
+	}
+	if report.IssueNumber != expectedIssue {
+		return agent.Action{}, fmt.Errorf("issue_report issue_number=%d does not match selected issue %d", report.IssueNumber, expectedIssue)
+	}
+	if strings.TrimSpace(report.Analysis) == "" {
+		return agent.Action{}, fmt.Errorf("issue_report requires non-empty analysis")
+	}
+	if report.NeedsTask {
+		if strings.TrimSpace(report.TaskTitle) == "" || strings.TrimSpace(report.TaskBody) == "" {
+			return agent.Action{}, fmt.Errorf("issue_report with needs_task=true requires non-empty task_title and task_body")
+		}
+	}
+	if result.Terminal.Type == agent.ActionDone && result.Terminal.Changes {
+		return agent.Action{}, fmt.Errorf("issue_triage mode does not allow done action with changes=true")
+	}
+
+	return report, nil
 }
 
 func (o *orchestrator) validateCheckoutMatchesPR(ctx context.Context, pr github.PullRequest) error {
@@ -927,6 +1006,42 @@ func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []even
 	}
 
 	b.WriteString("\nWhen done, emit protocol lines and finish.\n")
+	return b.String()
+}
+
+func (o *orchestrator) buildIssueTriagePrompt(issue github.Issue, repairInstruction string) string {
+	var b strings.Builder
+	b.WriteString("You are Codex running under simug orchestration.\n")
+	b.WriteString("No managed open PR currently exists. Perform issue triage for the selected authored issue.\n")
+	b.WriteString("Hard rules:\n")
+	b.WriteString("- Follow docs/WORKFLOW.md and docs/PLANNING.md for process and task planning.\n")
+	b.WriteString("- Do NOT push, do NOT create or modify PRs directly.\n")
+	b.WriteString("- Do NOT create commits in issue triage mode.\n")
+	b.WriteString("- Emit machine actions only with protocol lines starting exactly with SIMUG:.\n")
+	b.WriteString("- Emit manager-facing human messages only with prefix SIMUG_MANAGER:.\n")
+	b.WriteString("- Unprefixed narrative text is quarantined and ignored by the coordinator.\n")
+	b.WriteString("- Emit exactly one issue_report action before terminal action.\n")
+	b.WriteString("- Terminal protocol action must be exactly one of done or idle.\n\n")
+
+	b.WriteString("Protocol JSON lines:\n")
+	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
+	b.WriteString(`SIMUG: {"action":"issue_report","issue_number":123,"relevant":true,"analysis":"...","needs_task":true,"task_title":"...","task_body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"done","summary":"issue triaged","changes":false}` + "\n")
+	b.WriteString(`SIMUG: {"action":"idle","reason":"..."}` + "\n\n")
+
+	b.WriteString(fmt.Sprintf("Repository: %s\n", o.repo.FullName()))
+	b.WriteString(fmt.Sprintf("Selected issue: #%d\n", issue.Number))
+	b.WriteString(fmt.Sprintf("Issue title: %s\n", strings.TrimSpace(issue.Title)))
+	if body := strings.TrimSpace(issue.Body); body != "" {
+		b.WriteString("Issue body:\n")
+		b.WriteString(indentLines(limitString(body, maxCommentBodyChars), "  > "))
+		b.WriteString("\n")
+	}
+	if repairInstruction != "" {
+		b.WriteString("Repair instruction:\n")
+		b.WriteString(repairInstruction)
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
