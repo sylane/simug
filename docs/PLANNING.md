@@ -143,7 +143,7 @@ Status convention:
   - Scope: after PR creation from issue-derived task, orchestrator posts issue comment linking PR number/url and inserted task ID, using `active_issue` + `pending_task_id` context.
   - Done when: issue timeline shows explicit trace from triage decision to implementation PR.
 
-- [ ] **Task 5.8: Issue-first integration and failure tests**
+- [x] **Task 5.8: Issue-first integration and failure tests**
   - Scope: add tests for authored issue filtering, triage report parsing/validation, planning insertion, issue commenting, PR-backlink idempotency, and fallback to normal next-task flow when no issue is actionable.
   - Done when: issue-first behavior is covered by deterministic automated tests.
 

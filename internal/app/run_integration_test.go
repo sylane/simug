@@ -635,6 +635,55 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	}
 }
 
+func TestRunNoOpenPRNeedsTaskFailsWhenPlanningFileMissing(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+
+	tmp := t.TempDir()
+	report := agent.Action{
+		Type:        agent.ActionIssueReport,
+		IssueNumber: 4,
+		Relevant:    true,
+		Analysis:    "needs task",
+		NeedsTask:   true,
+		TaskTitle:   "x",
+		TaskBody:    "y",
+	}
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[[` +
+			`{"number":4,"title":"older","state":"OPEN","user":{"login":"alice"}}` +
+			`]]`,
+		commandKey("gh", "api", "repos/example/simug/issues/4/comments", "--paginate", "--slurp"): "[]",
+		commandKey("gh", "issue", "comment", "4", "--body", buildIssueTriageCommentBody(report)):  "",
+		commandKey("git", "status", "--porcelain"):                                                "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                           "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                    "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):            "0 0\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                    "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := Run(ctx, tmp)
+	if err == nil {
+		t.Fatalf("expected planning insertion failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "insert issue-derived planning task") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunNoOpenPRIssueTriageRejectsMissingIssueReport(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")

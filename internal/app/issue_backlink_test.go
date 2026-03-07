@@ -95,3 +95,30 @@ func TestMaybePostIssueDerivedPRBacklinkSkipsDuplicateMarker(t *testing.T) {
 		t.Fatalf("maybePostIssueDerivedPRBacklink returned error: %v", err)
 	}
 }
+
+func TestMaybePostIssueDerivedPRBacklinkIgnoresMarkerFromOtherAuthor(t *testing.T) {
+	o := orchestrator{
+		repoRoot: "/tmp",
+		repo:     git.Repo{Owner: "example", Name: "simug"},
+		user:     "alice",
+		state: &state.State{
+			ActiveIssue:   7,
+			PendingTaskID: "5.4a",
+		},
+	}
+
+	marker := issuePRBacklinkMarker(7, "5.4a", 123)
+	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "5.4a", 123)
+	runner := githubOnlyMockRunner{responses: map[string]string{
+		githubCommandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[[` +
+			`{"id":1001,"body":"` + marker + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"mallory"}}` +
+			`]]`,
+		githubCommandKey("gh", "issue", "comment", "7", "--body", body): "",
+	}}
+	restore := github.SetCommandRunnerForTest(runner)
+	defer restore()
+
+	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123); err != nil {
+		t.Fatalf("maybePostIssueDerivedPRBacklink returned error: %v", err)
+	}
+}
