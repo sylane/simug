@@ -93,12 +93,12 @@ Status convention:
   - Scope: successful managed-PR tick including event poll, agent action application, and cursor update.
   - Done when: one green-path loop is validated fully with mocks.
 
-- [ ] **Task 4.4: Prompt contract regression tests**
+- [x] **Task 4.4: Prompt contract regression tests**
   - Scope: assert managed/bootstrap/repair prompt builders keep required protocol instructions and examples (`SIMUG:` prefix, terminal action rule, no-push constraints).
   - Done when: prompt contract drift is caught by automated tests before merge.
 
 - [ ] **Task 4.5: Prompt-driven simulated Codex protocol matrix tests**
-  - Scope: run orchestrator/agent integration with realistic mixed stdout fixtures (narrative text + protocol lines) covering valid, malformed, missing-terminal, and multi-terminal responses.
+  - Scope: run orchestrator/agent integration with realistic mixed stdout fixtures (narrative text + protocol lines) covering valid, malformed, missing-terminal, and multi-terminal responses, while preserving 4.4 prompt-contract requirements.
   - Done when: parser/orchestrator behavior is deterministic across protocol compliance and failure classes.
 
 - [ ] **Task 4.6: Prompt tuning harness for repeatable protocol failures**
