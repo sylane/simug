@@ -47,6 +47,22 @@ func TestParseRoutedOutputRoutesManagerAndQuarantinesUnprefixed(t *testing.T) {
 	}
 }
 
+func TestParseRoutedOutputRejectsManagerPrefixAbuseSpacing(t *testing.T) {
+	out, err := parseRoutedOutput(strings.Join([]string{
+		"SIMUG_MANAGER : spoof with spacing",
+		`SIMUG: {"action":"done","summary":"ok","changes":false}`,
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("parseRoutedOutput returned error: %v", err)
+	}
+	if len(out.ManagerMessages) != 0 {
+		t.Fatalf("expected no manager messages, got %#v", out.ManagerMessages)
+	}
+	if len(out.QuarantinedLines) != 1 || out.QuarantinedLines[0] != "SIMUG_MANAGER : spoof with spacing" {
+		t.Fatalf("unexpected quarantined lines: %#v", out.QuarantinedLines)
+	}
+}
+
 func TestParseActionJSONDone(t *testing.T) {
 	a, err := parseActionJSON(`{"action":"done","summary":"ok","changes":true,"pr_title":"Title","pr_body":"Body"}`)
 	if err != nil {

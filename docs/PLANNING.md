@@ -109,7 +109,7 @@ Status convention:
   - Scope: test prompt/parse behavior for explicit `SIMUG:` (coordinator) and `SIMUG_MANAGER:` (manager) output prefixes, including rejection or quarantine of ambiguous unprefixed output, extending the repeatable 4.6 failure corpus/harness.
   - Done when: coordinator/manager channel separation is regression-tested and deterministic.
 
-- [ ] **Task 4.8: Prompt-injection resilience tests**
+- [x] **Task 4.8: Prompt-injection resilience tests**
   - Scope: add adversarial fixtures from GitHub comments/issues that attempt instruction override; verify only authorized `/agent` commands and coordinator directives are actionable, including manager/coordinator channel-prefix abuse attempts.
   - Done when: injection-like inputs are contained and policy regressions fail tests.
 
@@ -124,7 +124,7 @@ Status convention:
   - Done when: no-PR flow always evaluates authored issues first with predictable ordering.
 
 - [ ] **Task 5.3: Issue triage prompt and protocol extension**
-  - Scope: add issue triage prompt path and protocol support for `issue_report` (relevant/not relevant, analysis, needs_task, task proposal metadata).
+  - Scope: add issue triage prompt path and protocol support for `issue_report` (relevant/not relevant, analysis, needs_task, task proposal metadata) while preserving explicit `SIMUG:` / `SIMUG_MANAGER:` channel rules.
   - Done when: orchestrator validates and consumes issue triage reports reliably.
 
 - [ ] **Task 5.4: Orchestrator-owned issue analysis comments**
