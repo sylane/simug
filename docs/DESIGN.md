@@ -353,6 +353,11 @@ High-fidelity trace coverage:
 
 This enables deterministic reconstruction of a failed run without rerunning the worker.
 
+Operator failure explainer flow:
+
+- `simug explain-last-failure` reads latest failed `tick_end` event, related failed `invariant_decision`, and linked archive metadata.
+- Output includes failure reason, violated invariant, relevant branch/error context, and suggested next action.
+
 ## 15. Open Extensions
 
 - Label-based issue prioritization beyond authored-user filter

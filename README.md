@@ -212,6 +212,12 @@ simug run
 5. Drive execution through PR comments using `/agent ...` commands from authorized users.
 6. Let `simug` keep running and monitoring PR events.
 
+When a run fails, get a one-command diagnosis:
+
+```bash
+simug explain-last-failure
+```
+
 ## Managed PR Rules
 
 A PR is managed only when:
@@ -267,6 +273,8 @@ Rules:
   - commit/stash/clean before running.
 - `agent failed validation after ... attempts`
   - inspect `.simug/events.log` and last Codex output contract.
+- need a fast failure summary
+  - run `simug explain-last-failure` to get the last failed tick reason, invariant context, and suggested next action.
 - `gh ... failed`
   - verify `gh auth status`, repo permissions, and network access.
 

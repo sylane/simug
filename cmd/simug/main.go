@@ -27,9 +27,15 @@ func main() {
 		if err := app.Run(ctx, "."); err != nil {
 			log.Fatalf("simug: %v", err)
 		}
+	case "explain-last-failure":
+		msg, err := app.ExplainLastFailure(context.Background(), ".")
+		if err != nil {
+			log.Fatalf("simug: %v", err)
+		}
+		fmt.Println(msg)
 	case "help", "-h", "--help":
-		fmt.Println("usage: simug [run]")
+		fmt.Println("usage: simug [run|explain-last-failure]")
 	default:
-		log.Fatalf("unknown command %q (usage: simug [run])", cmd)
+		log.Fatalf("unknown command %q (usage: simug [run|explain-last-failure])", cmd)
 	}
 }

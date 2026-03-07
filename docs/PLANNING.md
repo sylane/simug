@@ -75,7 +75,7 @@ Status convention:
   - Scope: persist prompts sent to Codex and raw streamed output with correlation ids linked to PR/tick/attempt (`run_id`, `tick_seq`, `command_seq` lineage).
   - Done when: protocol parsing failures and behavior regressions are diagnosable from artifacts.
 
-- [ ] **Task 3.6: Operator failure explainer**
+- [x] **Task 3.6: Operator failure explainer**
   - Scope: add a command/flow to summarize last failure reason, violated invariant, and suggested next action from trace data and `.simug/archive/agent/...` attempt artifacts.
   - Done when: operator can get actionable failure diagnosis in one command.
 
@@ -178,7 +178,7 @@ Status convention:
   - Done when: self-hosted dogfood loop passes reproducibly.
 
 - [ ] **Task 6.8: Self-hosting go/no-go checklist and runbook**
-  - Scope: define explicit gates for enabling simug-as-default for simug development (required tasks/tests/log artifacts, rollback procedure, operator commands).
+  - Scope: define explicit gates for enabling simug-as-default for simug development (required tasks/tests/log artifacts, rollback procedure, operator commands including failure diagnosis flow such as `simug explain-last-failure`).
   - Done when: team has a concrete and auditable criterion for switching from direct/manual development to self-host default.
 
 - [ ] **Task 6.9: Stop/restart chaos validation**
