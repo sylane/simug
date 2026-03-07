@@ -351,14 +351,31 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	}
 
 	if o.state.Mode == state.ModeIssueTriage {
-		// Task 5.2 will provide authored-issue selection. Until then, deterministically
-		// advance to task bootstrap after explicit issue-triage mode entry.
+		issues, err := github.ListOpenIssuesByAuthor(ctx, o.repoRoot, o.repo.FullName(), o.user)
+		if err != nil {
+			return fmt.Errorf("list authored open issues: %w", err)
+		}
+		o.state.ActiveIssue = 0
+		if len(issues) > 0 {
+			selected := issues[0]
+			o.state.ActiveIssue = selected.Number
+			o.logEvent("issue_selection", "selected authored issue candidate for triage", map[string]any{
+				"issue": selected.Number,
+				"title": selected.Title,
+			})
+		} else {
+			o.logEvent("issue_selection", "no authored open issues found before bootstrap", map[string]any{
+				"user": o.user,
+			})
+		}
+
+		// Task 5.3 will provide issue-triage prompt execution. Until then, deterministically
+		// advance to task bootstrap after selecting the issue candidate.
 		o.logEvent("mode_transition", "no issue triage selector yet, falling through to task_bootstrap", map[string]any{
 			"from": string(state.ModeIssueTriage),
 			"to":   string(state.ModeTaskBootstrap),
 		})
 		o.state.Mode = state.ModeTaskBootstrap
-		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
 	}
 	if o.state.Mode != state.ModeTaskBootstrap {

@@ -119,12 +119,12 @@ Status convention:
   - Scope: add explicit orchestrator modes (`managed_pr`, `issue_triage`, `task_bootstrap`) and state persistence for active issue/pending task metadata.
   - Done when: mode transitions are deterministic and restart-safe across PR merge -> issue triage -> task bootstrap.
 
-- [ ] **Task 5.2: Authored-issue discovery and deterministic selection**
+- [x] **Task 5.2: Authored-issue discovery and deterministic selection**
   - Scope: list open issues authored by current authenticated user and select one deterministically before next-task bootstrap, using persisted mode/issue/task metadata introduced in 5.1.
   - Done when: no-PR flow always evaluates authored issues first with predictable ordering.
 
 - [ ] **Task 5.3: Issue triage prompt and protocol extension**
-  - Scope: add issue triage prompt path and protocol support for `issue_report` (relevant/not relevant, analysis, needs_task, task proposal metadata) while preserving explicit `SIMUG:` / `SIMUG_MANAGER:` channel rules.
+  - Scope: add issue triage prompt path and protocol support for `issue_report` (relevant/not relevant, analysis, needs_task, task proposal metadata) while preserving explicit `SIMUG:` / `SIMUG_MANAGER:` channel rules; consume persisted deterministic issue candidate (`active_issue`) selected in 5.2.
   - Done when: orchestrator validates and consumes issue triage reports reliably.
 
 - [ ] **Task 5.4: Orchestrator-owned issue analysis comments**

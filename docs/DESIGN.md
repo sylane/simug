@@ -112,7 +112,7 @@ If no authored open issues exist, bootstrap the next pending planning task direc
 
 Codex can propose PR title/body through protocol; orchestrator uses those when creating the PR.
 
-Implementation note (current milestone): mode persistence (`managed_pr` / `issue_triage` / `task_bootstrap`) is active and restart-safe. Until authored-issue discovery lands, `issue_triage` deterministically falls through to `task_bootstrap`.
+Implementation note (current milestone): mode persistence plus authored-issue discovery/selection are active and restart-safe. Until issue-triage prompt/report handling lands, `issue_triage` selects and persists the deterministic authored-issue candidate, then falls through to `task_bootstrap`.
 
 ## 6. Continuous Monitoring Loop
 

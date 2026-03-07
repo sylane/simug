@@ -123,3 +123,26 @@ func TestRunEmitsCommandTraceOnError(t *testing.T) {
 		t.Fatalf("expected trace error to be populated")
 	}
 }
+
+func TestListOpenIssuesByAuthorFiltersPRsAndSortsByNumber(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh api repos/example/simug/issues?state=open&creator=alice --paginate --slurp": `[[` +
+			`{"number":9,"title":"z","state":"OPEN","user":{"login":"alice"}},` +
+			`{"number":2,"title":"pr","state":"OPEN","user":{"login":"alice"},"pull_request":{"url":"x"}},` +
+			`{"number":3,"title":"a","state":"OPEN","user":{"login":"alice"}}` +
+			`]]`,
+	}}
+	restore := SetCommandRunnerForTest(r)
+	defer restore()
+
+	issues, err := ListOpenIssuesByAuthor(context.Background(), "/tmp", "example/simug", "alice")
+	if err != nil {
+		t.Fatalf("ListOpenIssuesByAuthor returned error: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues, got %#v", issues)
+	}
+	if issues[0].Number != 3 || issues[1].Number != 9 {
+		t.Fatalf("issues not sorted/filtered as expected: %#v", issues)
+	}
+}

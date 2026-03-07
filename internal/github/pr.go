@@ -131,6 +131,15 @@ type PullRequest struct {
 	} `json:"author"`
 }
 
+type Issue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Author struct {
+		Login string `json:"login"`
+	} `json:"user"`
+}
+
 type IssueComment struct {
 	ID        int64     `json:"id"`
 	Body      string    `json:"body"`
@@ -283,6 +292,45 @@ func ListReviews(ctx context.Context, repoRoot, repoFullName string, prNumber in
 	}
 	sort.Slice(reviews, func(i, j int) bool { return reviews[i].ID < reviews[j].ID })
 	return reviews, nil
+}
+
+func ListOpenIssuesByAuthor(ctx context.Context, repoRoot, repoFullName, author string) ([]Issue, error) {
+	path := fmt.Sprintf("repos/%s/issues?state=open&creator=%s", repoFullName, url.QueryEscape(author))
+	out, err := run(ctx, repoRoot, "gh", "api", path, "--paginate", "--slurp")
+	if err != nil {
+		return nil, err
+	}
+
+	type rawIssue struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		State  string `json:"state"`
+		User   struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		PullRequest json.RawMessage `json:"pull_request"`
+	}
+
+	rawIssues, err := decodeSlurped[rawIssue](out)
+	if err != nil {
+		return nil, fmt.Errorf("decode authored issues: %w", err)
+	}
+
+	issues := make([]Issue, 0, len(rawIssues))
+	for _, raw := range rawIssues {
+		if len(raw.PullRequest) > 0 && string(raw.PullRequest) != "null" {
+			continue
+		}
+		issue := Issue{
+			Number: raw.Number,
+			Title:  raw.Title,
+			State:  raw.State,
+		}
+		issue.Author.Login = raw.User.Login
+		issues = append(issues, issue)
+	}
+	sort.Slice(issues, func(i, j int) bool { return issues[i].Number < issues[j].Number })
+	return issues, nil
 }
 
 func parsePRNumber(raw string) (int, error) {

@@ -19,3 +19,4 @@ https://keepachangelog.com/en/1.1.0/
 - Dual-entity routing contract coverage for `SIMUG:` (coordinator) and `SIMUG_MANAGER:` (manager), with deterministic quarantine of ambiguous unprefixed output lines.
 - Prompt-injection resilience fixtures covering malicious GitHub text and channel-prefix abuse attempts, ensuring only authorized `/agent` directives are actionable.
 - Explicit persisted loop-mode state model (`managed_pr`, `issue_triage`, `task_bootstrap`) with deterministic mode transitions and restart-safe metadata fields (`active_issue`, `pending_task_id`).
+- Authored open-issue discovery for no-PR intake via `gh api`, with PR filtering, deterministic oldest-first selection (lowest issue number), and persisted `active_issue` candidate tracking across issue-first bootstrap fallback.
