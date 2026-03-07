@@ -1,0 +1,954 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"simug/internal/agent"
+	"simug/internal/git"
+	"simug/internal/github"
+	"simug/internal/runtimepaths"
+	"simug/internal/state"
+)
+
+const (
+	defaultPollInterval      = 30 * time.Second
+	defaultMainBranch        = "main"
+	defaultBranchPrefix      = "agent/"
+	defaultMaxRepairAttempts = 2
+	maxCommentBodyChars      = 4000
+	defaultAllowedVerbs      = "do,retry,status,continue,comment,report,help"
+)
+
+type config struct {
+	PollInterval      time.Duration
+	MainBranch        string
+	BranchPrefix      string
+	BranchPattern     *regexp.Regexp
+	AgentCommand      string
+	MaxRepairAttempts int
+	AllowedUsers      map[string]struct{}
+	AllowedVerbs      map[string]struct{}
+}
+
+type orchestrator struct {
+	repoRoot string
+	repo     git.Repo
+	user     string
+	state    *state.State
+	cfg      config
+	runner   agent.Runner
+	logger   *eventLogger
+}
+
+type event struct {
+	Source               string
+	ID                   int64
+	Author               string
+	Body                 string
+	CreatedAt            time.Time
+	Commands             []string
+	UnauthorizedCommands []string
+}
+
+type eventPoll struct {
+	Events         []event
+	IssueByID      map[int64]event
+	ReviewByID     map[int64]event
+	MaxIssueID     int64
+	MaxReviewID    int64
+	MaxReviewComID int64
+}
+
+func Run(ctx context.Context, startDir string) error {
+	repoRoot, err := git.RepoRoot(ctx, startDir)
+	if err != nil {
+		return err
+	}
+
+	unlock, err := acquireLock(repoRoot)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	repo, err := git.ResolveGitHubRepo(ctx, repoRoot)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	files := []string{
+		filepath.Join(repoRoot, "AGENT.md"),
+		filepath.Join(repoRoot, "docs", "WORKFLOW.md"),
+		filepath.Join(repoRoot, "docs", "PLANNING.md"),
+	}
+	for _, f := range files {
+		if _, err := os.Stat(f); err == nil {
+			fmt.Printf("context: found %s\n", strings.TrimPrefix(f, repoRoot+string(os.PathSeparator)))
+		}
+	}
+
+	user, err := github.CurrentUser(ctx, repoRoot)
+	if err != nil {
+		return fmt.Errorf("resolve github user: %w", err)
+	}
+	if len(cfg.AllowedUsers) == 0 {
+		cfg.AllowedUsers = map[string]struct{}{strings.ToLower(user): struct{}{}}
+	}
+
+	logger, err := newEventLogger(repoRoot)
+	if err != nil {
+		return fmt.Errorf("initialize event log: %w", err)
+	}
+
+	st, err := state.Load(repoRoot)
+	if err != nil {
+		return err
+	}
+	st.Repo = repo.FullName()
+	if st.LastCommentID > 0 && st.LastIssueCommentID == 0 && st.LastReviewCommentID == 0 && st.LastReviewID == 0 {
+		st.CursorUncertain = true
+	}
+	st.UpdatedAt = time.Now().UTC()
+	if err := st.Save(repoRoot); err != nil {
+		return err
+	}
+
+	o := &orchestrator{
+		repoRoot: repoRoot,
+		repo:     repo,
+		user:     user,
+		state:    st,
+		cfg:      cfg,
+		runner:   agent.Runner{Command: cfg.AgentCommand},
+		logger:   logger,
+	}
+
+	fmt.Printf("repo: %s\n", repo.FullName())
+	fmt.Printf("user: %s\n", user)
+	fmt.Printf("poll_interval: %s\n", cfg.PollInterval)
+	fmt.Printf("command_authors: %s\n", strings.Join(sortedKeys(cfg.AllowedUsers), ","))
+	o.logEvent("startup", "worker started", map[string]any{
+		"repo":             repo.FullName(),
+		"user":             user,
+		"poll_interval":    cfg.PollInterval.String(),
+		"command_authors":  sortedKeys(cfg.AllowedUsers),
+		"allowed_commands": sortedKeys(cfg.AllowedVerbs),
+	})
+
+	for {
+		if err := o.tick(ctx); err != nil {
+			return err
+		}
+		o.state.UpdatedAt = time.Now().UTC()
+		if err := o.state.Save(o.repoRoot); err != nil {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(o.cfg.PollInterval):
+		}
+	}
+}
+
+func (o *orchestrator) tick(ctx context.Context) error {
+	prs, err := github.ListOpenPRsByAuthor(ctx, o.repoRoot, o.user)
+	if err != nil {
+		return fmt.Errorf("list open prs: %w", err)
+	}
+
+	if len(prs) > 1 {
+		var items []string
+		for _, pr := range prs {
+			items = append(items, fmt.Sprintf("#%d (%s)", pr.Number, pr.HeadRefName))
+		}
+		sort.Strings(items)
+		o.logEvent("invariant_violation", "multiple open PRs for current user", map[string]any{"prs": items})
+		return fmt.Errorf("found %d open PRs authored by %s; expected at most one managed PR: %s", len(prs), o.user, strings.Join(items, ", "))
+	}
+
+	if len(prs) == 1 {
+		pr := prs[0]
+		if !o.cfg.BranchPattern.MatchString(pr.HeadRefName) {
+			return fmt.Errorf("open PR #%d branch %q does not match managed pattern %q", pr.Number, pr.HeadRefName, o.cfg.BranchPattern.String())
+		}
+		return o.handleManagedPR(ctx, pr.Number)
+	}
+
+	if o.state.ActivePR != 0 {
+		fmt.Printf("status: active PR #%d is no longer open; transitioning to next-task bootstrap\n", o.state.ActivePR)
+		o.logEvent("pr_transition", "active PR is no longer open", map[string]any{"active_pr": o.state.ActivePR})
+	}
+	o.state.ActivePR = 0
+	o.state.ActiveBranch = ""
+	return o.handleNoOpenPR(ctx)
+}
+
+func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error {
+	pr, err := github.GetPR(ctx, o.repoRoot, prNumber)
+	if err != nil {
+		return fmt.Errorf("read PR #%d: %w", prNumber, err)
+	}
+	if !strings.EqualFold(pr.State, "OPEN") {
+		return fmt.Errorf("expected PR #%d to be open, got state=%q", pr.Number, pr.State)
+	}
+
+	if err := git.FetchOrigin(ctx, o.repoRoot); err != nil {
+		return fmt.Errorf("fetch origin before PR validation: %w", err)
+	}
+	if err := o.validateCheckoutMatchesPR(ctx, pr); err != nil {
+		return err
+	}
+
+	o.state.ActivePR = pr.Number
+	o.state.ActiveBranch = pr.HeadRefName
+
+	poll, err := o.pollEvents(ctx, pr.Number)
+	if err != nil {
+		return err
+	}
+	if len(poll.Events) == 0 && !o.state.CursorUncertain {
+		fmt.Printf("status: PR #%d in sync, no new comments\n", pr.Number)
+		return nil
+	}
+
+	if len(poll.Events) > 0 {
+		fmt.Printf("status: PR #%d has %d new event(s)\n", pr.Number, len(poll.Events))
+		o.logEvent("pr_events", "new PR events detected", map[string]any{"pr": pr.Number, "count": len(poll.Events)})
+	} else if o.state.CursorUncertain {
+		fmt.Printf("status: cursor uncertainty detected, replaying context to Codex\n")
+		o.logEvent("cursor_replay", "cursor uncertainty triggered replay", map[string]any{"pr": pr.Number})
+	}
+
+	beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("read pre-agent head: %w", err)
+	}
+
+	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false)
+	if err != nil {
+		return err
+	}
+
+	if beforeHead != afterHead {
+		fmt.Printf("git: pushing branch %s\n", pr.HeadRefName)
+		o.logEvent("git_push", "pushing managed branch updates", map[string]any{"branch": pr.HeadRefName, "pr": pr.Number})
+		if err := git.Push(ctx, o.repoRoot, "origin", pr.HeadRefName); err != nil {
+			return fmt.Errorf("push branch %s: %w", pr.HeadRefName, err)
+		}
+	}
+
+	if err := o.applyActions(ctx, pr.Number, result.Actions, poll); err != nil {
+		return err
+	}
+
+	o.state.LastIssueCommentID = maxInt64(o.state.LastIssueCommentID, poll.MaxIssueID)
+	o.state.LastReviewCommentID = maxInt64(o.state.LastReviewCommentID, poll.MaxReviewComID)
+	o.state.LastReviewID = maxInt64(o.state.LastReviewID, poll.MaxReviewID)
+	o.state.CursorUncertain = false
+
+	return nil
+}
+
+func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
+	if err := o.ensureMainReady(ctx); err != nil {
+		return err
+	}
+
+	beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("read main HEAD before agent run: %w", err)
+	}
+
+	expectedBranch := o.generateBranchName()
+	prompt := o.buildBootstrapPrompt(expectedBranch, "")
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true)
+	if err != nil {
+		return err
+	}
+
+	if result.Terminal.Type == agent.ActionIdle {
+		fmt.Printf("status: agent idle: %s\n", strings.TrimSpace(result.Terminal.Reason))
+		o.logEvent("agent_idle", "bootstrap agent returned idle", map[string]any{"reason": strings.TrimSpace(result.Terminal.Reason)})
+		o.state.ActivePR = 0
+		o.state.ActiveBranch = ""
+		return nil
+	}
+
+	if !result.Terminal.Changes {
+		return fmt.Errorf("bootstrap run produced done action with changes=false; refusing to create PR")
+	}
+	if beforeHead == afterHead {
+		return fmt.Errorf("bootstrap run reported completion but no new commit was created")
+	}
+
+	title, body := normalizePRMetadata(result.Terminal)
+
+	fmt.Printf("git: pushing new branch %s\n", expectedBranch)
+	o.logEvent("git_push", "pushing new branch before PR creation", map[string]any{"branch": expectedBranch})
+	if err := git.Push(ctx, o.repoRoot, "origin", expectedBranch); err != nil {
+		return fmt.Errorf("push new branch %s: %w", expectedBranch, err)
+	}
+
+	fmt.Printf("github: creating PR from %s to %s\n", expectedBranch, o.cfg.MainBranch)
+	o.logEvent("pr_create", "creating managed pull request", map[string]any{"branch": expectedBranch, "base": o.cfg.MainBranch})
+	prNumber, err := github.CreatePR(ctx, o.repoRoot, title, body, o.cfg.MainBranch, expectedBranch, true)
+	if err != nil {
+		return fmt.Errorf("create pull request: %w", err)
+	}
+
+	o.state.ActivePR = prNumber
+	o.state.ActiveBranch = expectedBranch
+	fmt.Printf("status: created managed PR #%d (%s)\n", prNumber, expectedBranch)
+	o.logEvent("pr_created", "managed pull request created", map[string]any{"pr": prNumber, "branch": expectedBranch})
+
+	emptyPoll := eventPoll{IssueByID: map[int64]event{}, ReviewByID: map[int64]event{}}
+	if err := o.applyActions(ctx, prNumber, result.Actions, emptyPoll); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool) (agent.Result, string, error) {
+	currentPrompt := prompt
+	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
+		fmt.Printf("agent: running Codex (attempt %d/%d)\n", attempt+1, o.cfg.MaxRepairAttempts+1)
+		result, err := o.runner.Run(ctx, currentPrompt)
+		if err != nil {
+			return agent.Result{}, "", fmt.Errorf("run codex agent: %w", err)
+		}
+
+		afterHead, validationErr := o.validatePostAgentState(ctx, result, expectedBranch, beforeHead, requireCommitForDone, allowIdleOnMain)
+		if validationErr == nil {
+			return result, afterHead, nil
+		}
+		if attempt >= o.cfg.MaxRepairAttempts {
+			return agent.Result{}, "", fmt.Errorf("agent failed validation after %d attempts: %w", attempt+1, validationErr)
+		}
+
+		currentPrompt = o.buildRepairPrompt(expectedBranch, validationErr)
+	}
+	return agent.Result{}, "", fmt.Errorf("unreachable")
+}
+
+func (o *orchestrator) validatePostAgentState(ctx context.Context, result agent.Result, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool) (string, error) {
+	branch, err := git.CurrentBranch(ctx, o.repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("read current branch: %w", err)
+	}
+	if result.Terminal.Type == agent.ActionIdle && allowIdleOnMain {
+		if branch != o.cfg.MainBranch {
+			return "", fmt.Errorf("idle action requires staying on %q, got branch %q", o.cfg.MainBranch, branch)
+		}
+	} else {
+		if branch != expectedBranch {
+			return "", fmt.Errorf("expected current branch %q, got %q", expectedBranch, branch)
+		}
+		if !o.cfg.BranchPattern.MatchString(branch) {
+			return "", fmt.Errorf("branch %q does not match required pattern %q", branch, o.cfg.BranchPattern.String())
+		}
+	}
+
+	clean, status, err := git.IsClean(ctx, o.repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("check git cleanliness: %w", err)
+	}
+	if !clean {
+		return "", fmt.Errorf("working tree is dirty after agent run:\n%s", status)
+	}
+
+	afterHead, err := git.HeadSHA(ctx, o.repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("read post-agent head: %w", err)
+	}
+
+	switch result.Terminal.Type {
+	case agent.ActionDone:
+		if requireCommitForDone && !result.Terminal.Changes {
+			return "", fmt.Errorf("done action must set changes=true in this workflow stage")
+		}
+		if result.Terminal.Changes && beforeHead == afterHead {
+			return "", fmt.Errorf("done action indicates changes=true but no new commit exists")
+		}
+	case agent.ActionIdle:
+		if beforeHead != afterHead {
+			return "", fmt.Errorf("idle action emitted but commits changed during run")
+		}
+	}
+
+	return afterHead, nil
+}
+
+func (o *orchestrator) validateCheckoutMatchesPR(ctx context.Context, pr github.PullRequest) error {
+	branch, err := git.CurrentBranch(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("read current branch: %w", err)
+	}
+	if branch != pr.HeadRefName {
+		return fmt.Errorf("checkout mismatch for PR #%d: current branch is %q, expected %q", pr.Number, branch, pr.HeadRefName)
+	}
+
+	clean, status, err := git.IsClean(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("check working tree status: %w", err)
+	}
+	if !clean {
+		return fmt.Errorf("checkout mismatch for PR #%d: working tree is dirty:\n%s", pr.Number, status)
+	}
+
+	localHead, err := git.HeadSHA(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("read local HEAD: %w", err)
+	}
+	if pr.HeadRefOid != "" && localHead != pr.HeadRefOid {
+		return fmt.Errorf("checkout mismatch for PR #%d: local HEAD %s != PR head %s", pr.Number, localHead, pr.HeadRefOid)
+	}
+
+	remoteHead, err := git.RefSHA(ctx, o.repoRoot, "origin/"+pr.HeadRefName)
+	if err != nil {
+		return fmt.Errorf("resolve origin/%s: %w", pr.HeadRefName, err)
+	}
+	if pr.HeadRefOid != "" && remoteHead != pr.HeadRefOid {
+		return fmt.Errorf("checkout mismatch for PR #%d: origin/%s is %s, PR head is %s", pr.Number, pr.HeadRefName, remoteHead, pr.HeadRefOid)
+	}
+	if remoteHead != localHead {
+		return fmt.Errorf("checkout mismatch for PR #%d: local HEAD %s != origin/%s %s", pr.Number, localHead, pr.HeadRefName, remoteHead)
+	}
+	return nil
+}
+
+func (o *orchestrator) ensureMainReady(ctx context.Context) error {
+	clean, status, err := git.IsClean(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("check working tree before main sync: %w", err)
+	}
+	if !clean {
+		return fmt.Errorf("cannot bootstrap new task with dirty working tree:\n%s", status)
+	}
+
+	if err := git.FetchOrigin(ctx, o.repoRoot); err != nil {
+		return fmt.Errorf("fetch origin: %w", err)
+	}
+
+	currentBranch, err := git.CurrentBranch(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("read current branch: %w", err)
+	}
+
+	mainRemoteRef := "origin/" + o.cfg.MainBranch
+	if currentBranch != o.cfg.MainBranch {
+		merged, err := git.IsAncestor(ctx, o.repoRoot, "HEAD", mainRemoteRef)
+		if err != nil {
+			return fmt.Errorf("check whether current branch is merged into %s: %w", mainRemoteRef, err)
+		}
+		if !merged {
+			return fmt.Errorf("current branch %q is not merged into %s; refusing to start a new task", currentBranch, mainRemoteRef)
+		}
+		if err := git.Checkout(ctx, o.repoRoot, o.cfg.MainBranch); err != nil {
+			return fmt.Errorf("checkout %s: %w", o.cfg.MainBranch, err)
+		}
+	}
+
+	ahead, behind, err := git.AheadBehind(ctx, o.repoRoot, "HEAD", mainRemoteRef)
+	if err != nil {
+		return fmt.Errorf("compare HEAD with %s: %w", mainRemoteRef, err)
+	}
+	if ahead > 0 {
+		return fmt.Errorf("local %s is %d commit(s) ahead of %s; refusing automation", o.cfg.MainBranch, ahead, mainRemoteRef)
+	}
+	if behind > 0 {
+		if err := git.PullFFOnly(ctx, o.repoRoot, "origin", o.cfg.MainBranch); err != nil {
+			return fmt.Errorf("fast-forward pull %s: %w", o.cfg.MainBranch, err)
+		}
+	}
+	return nil
+}
+
+func (o *orchestrator) pollEvents(ctx context.Context, prNumber int) (eventPoll, error) {
+	issueComments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), prNumber)
+	if err != nil {
+		return eventPoll{}, fmt.Errorf("list issue comments: %w", err)
+	}
+	reviewComments, err := github.ListReviewComments(ctx, o.repoRoot, o.repo.FullName(), prNumber)
+	if err != nil {
+		return eventPoll{}, fmt.Errorf("list review comments: %w", err)
+	}
+	reviews, err := github.ListReviews(ctx, o.repoRoot, o.repo.FullName(), prNumber)
+	if err != nil {
+		return eventPoll{}, fmt.Errorf("list reviews: %w", err)
+	}
+
+	out := eventPoll{
+		IssueByID:  make(map[int64]event),
+		ReviewByID: make(map[int64]event),
+	}
+
+	for _, c := range issueComments {
+		out.MaxIssueID = maxInt64(out.MaxIssueID, c.ID)
+		if !o.state.CursorUncertain && c.ID <= o.state.LastIssueCommentID {
+			continue
+		}
+		e := event{Source: "issue_comment", ID: c.ID, Author: c.User.Login, Body: limitString(c.Body, maxCommentBodyChars), CreatedAt: c.CreatedAt}
+		e.Commands, e.UnauthorizedCommands = parseAgentCommands(e.Body, e.Author, o.cfg.AllowedUsers, o.cfg.AllowedVerbs)
+		out.Events = append(out.Events, e)
+		out.IssueByID[c.ID] = e
+	}
+
+	for _, c := range reviewComments {
+		out.MaxReviewComID = maxInt64(out.MaxReviewComID, c.ID)
+		if !o.state.CursorUncertain && c.ID <= o.state.LastReviewCommentID {
+			continue
+		}
+		e := event{Source: "review_comment", ID: c.ID, Author: c.User.Login, Body: limitString(c.Body, maxCommentBodyChars), CreatedAt: c.CreatedAt}
+		e.Commands, e.UnauthorizedCommands = parseAgentCommands(e.Body, e.Author, o.cfg.AllowedUsers, o.cfg.AllowedVerbs)
+		out.Events = append(out.Events, e)
+		out.ReviewByID[c.ID] = e
+	}
+
+	for _, r := range reviews {
+		out.MaxReviewID = maxInt64(out.MaxReviewID, r.ID)
+		if !o.state.CursorUncertain && r.ID <= o.state.LastReviewID {
+			continue
+		}
+		createdAt := time.Now().UTC()
+		if r.SubmittedAt != nil {
+			createdAt = *r.SubmittedAt
+		}
+		e := event{Source: "review", ID: r.ID, Author: r.User.Login, Body: limitString(r.Body, maxCommentBodyChars), CreatedAt: createdAt}
+		e.Commands, e.UnauthorizedCommands = parseAgentCommands(e.Body, e.Author, o.cfg.AllowedUsers, o.cfg.AllowedVerbs)
+		out.Events = append(out.Events, e)
+	}
+
+	sort.Slice(out.Events, func(i, j int) bool {
+		if out.Events[i].CreatedAt.Equal(out.Events[j].CreatedAt) {
+			return out.Events[i].ID < out.Events[j].ID
+		}
+		return out.Events[i].CreatedAt.Before(out.Events[j].CreatedAt)
+	})
+
+	return out, nil
+}
+
+func (o *orchestrator) applyActions(ctx context.Context, prNumber int, actions []agent.Action, poll eventPoll) error {
+	for _, a := range actions {
+		switch a.Type {
+		case agent.ActionComment:
+			o.logEvent("github_comment", "posting PR comment", map[string]any{"pr": prNumber})
+			if err := github.CommentPR(ctx, o.repoRoot, prNumber, limitString(strings.TrimSpace(a.Body), 60000)); err != nil {
+				return fmt.Errorf("post PR comment: %w", err)
+			}
+		case agent.ActionReply:
+			body := limitString(strings.TrimSpace(a.Body), 60000)
+			if replyEvent, ok := poll.ReviewByID[a.CommentID]; ok {
+				o.logEvent("github_reply", "replying to review comment", map[string]any{"pr": prNumber, "comment_id": replyEvent.ID})
+				if err := github.ReplyToReviewComment(ctx, o.repoRoot, o.repo.FullName(), replyEvent.ID, body); err != nil {
+					return fmt.Errorf("reply to review comment %d: %w", replyEvent.ID, err)
+				}
+				continue
+			}
+
+			if issueEvent, ok := poll.IssueByID[a.CommentID]; ok {
+				mention := ""
+				if issueEvent.Author != "" {
+					mention = "@" + issueEvent.Author + " "
+				}
+				o.logEvent("github_reply_fallback", "replying through PR comment fallback", map[string]any{"pr": prNumber, "comment_id": issueEvent.ID})
+				if err := github.CommentPR(ctx, o.repoRoot, prNumber, mention+body); err != nil {
+					return fmt.Errorf("fallback reply for issue comment %d: %w", issueEvent.ID, err)
+				}
+				continue
+			}
+
+			o.logEvent("github_reply_fallback", "reply target not found, posting regular comment", map[string]any{"pr": prNumber, "comment_id": a.CommentID})
+			if err := github.CommentPR(ctx, o.repoRoot, prNumber, body); err != nil {
+				return fmt.Errorf("reply fallback comment for unknown comment id %d: %w", a.CommentID, err)
+			}
+		case agent.ActionDone, agent.ActionIdle:
+			// Terminal actions are consumed by orchestrator state flow.
+		default:
+			return fmt.Errorf("unsupported action type %q", a.Type)
+		}
+	}
+	return nil
+}
+
+func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []event, cursorUncertain bool, repairInstruction string) string {
+	var b strings.Builder
+	b.WriteString("You are Codex running under simug orchestration.\n")
+	b.WriteString("Hard rules:\n")
+	b.WriteString("- Follow docs/WORKFLOW.md and docs/PLANNING.md for process and task planning.\n")
+	b.WriteString("- Do commit your completed changes locally.\n")
+	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
+	b.WriteString("- Do NOT push, do NOT create or modify PRs directly.\n")
+	b.WriteString(fmt.Sprintf("- Accept /agent commands only from authorized users: %s.\n", strings.Join(sortedKeys(o.cfg.AllowedUsers), ",")))
+	b.WriteString(fmt.Sprintf("- Supported /agent verbs: %s.\n", strings.Join(sortedKeys(o.cfg.AllowedVerbs), ",")))
+	b.WriteString("- Emit machine actions only with protocol lines starting exactly with SIMUG:.\n")
+	b.WriteString("- Terminal protocol action must be exactly one of done or idle.\n\n")
+
+	b.WriteString("Protocol JSON lines:\n")
+	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"reply","comment_id":123,"body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}` + "\n")
+	b.WriteString(`SIMUG: {"action":"idle","reason":"..."}` + "\n\n")
+
+	b.WriteString(fmt.Sprintf("Repository: %s\n", o.repo.FullName()))
+	b.WriteString(fmt.Sprintf("PR: #%d\n", pr.Number))
+	b.WriteString(fmt.Sprintf("Branch: %s\n", pr.HeadRefName))
+
+	if cursorUncertain {
+		b.WriteString("Cursor confidence is LOW: previous run may have missed comments. Re-evaluate context conservatively.\n")
+	}
+	if repairInstruction != "" {
+		b.WriteString("Repair instruction:\n")
+		b.WriteString(repairInstruction)
+		b.WriteString("\n")
+	}
+
+	if len(events) == 0 {
+		b.WriteString("No new GitHub comments detected. Continue only if you need to repair consistency.\n")
+	} else {
+		b.WriteString("New GitHub events since last handled cursor:\n")
+		for _, e := range events {
+			b.WriteString(fmt.Sprintf("- [%s #%d by %s at %s]\n", e.Source, e.ID, e.Author, e.CreatedAt.UTC().Format(time.RFC3339)))
+			if len(e.Commands) > 0 {
+				b.WriteString("  Authorized /agent commands:\n")
+				for _, cmd := range e.Commands {
+					b.WriteString("  - ")
+					b.WriteString(cmd)
+					b.WriteString("\n")
+				}
+			}
+			if len(e.UnauthorizedCommands) > 0 {
+				b.WriteString("  Ignored /agent commands:\n")
+				for _, cmd := range e.UnauthorizedCommands {
+					b.WriteString("  - ")
+					b.WriteString(cmd)
+					b.WriteString("\n")
+				}
+			}
+			if strings.TrimSpace(e.Body) != "" {
+				b.WriteString("  Body:\n")
+				b.WriteString(indentLines(limitString(e.Body, maxCommentBodyChars), "  > "))
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	b.WriteString("\nWhen done, emit protocol lines and finish.\n")
+	return b.String()
+}
+
+func (o *orchestrator) buildBootstrapPrompt(expectedBranch, repairInstruction string) string {
+	var b strings.Builder
+	b.WriteString("You are Codex running under simug orchestration.\n")
+	b.WriteString("No managed open PR currently exists. Start the next task from docs/PLANNING.md and docs/WORKFLOW.md.\n")
+	b.WriteString("Hard rules:\n")
+	b.WriteString(fmt.Sprintf("- Create and use branch EXACTLY named: %s\n", expectedBranch))
+	b.WriteString("- Implement the next task and commit changes locally when complete.\n")
+	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
+	b.WriteString("- Do NOT push. Do NOT create PR.\n")
+	b.WriteString("- Keep working tree clean before finishing.\n")
+	if repairInstruction != "" {
+		b.WriteString("Repair instruction:\n")
+		b.WriteString(repairInstruction)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("Protocol JSON lines:\n")
+	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"idle","reason":"no task available"}` + "\n")
+	b.WriteString("Exactly one terminal action (done or idle) is required.\n")
+	return b.String()
+}
+
+func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr error) string {
+	var b strings.Builder
+	b.WriteString("Your previous run violated simug validation checks.\n")
+	b.WriteString("Fix repository consistency and emit protocol lines again.\n")
+	b.WriteString("Violation:\n")
+	b.WriteString(validationErr.Error())
+	b.WriteString("\n\n")
+	b.WriteString("Rules:\n")
+	b.WriteString("- follow docs/WORKFLOW.md and docs/PLANNING.md\n")
+	b.WriteString("- commit local changes when task is complete\n")
+	b.WriteString("- maintain task records: history/, CHANGELOG.md, and .git/SIMUG_COMMIT_MSG\n")
+	b.WriteString("- never push or create/update PR directly\n")
+	b.WriteString(fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)\n", expectedBranch, o.cfg.MainBranch))
+	b.WriteString("- keep the working tree clean before finishing\n")
+	b.WriteString("Protocol JSON lines:\n")
+	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"reply","comment_id":123,"body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true}` + "\n")
+	b.WriteString(`SIMUG: {"action":"idle","reason":"..."}` + "\n")
+	return b.String()
+}
+
+func (o *orchestrator) generateBranchName() string {
+	ts := time.Now().UTC().Format("20060102-150405")
+	return o.cfg.BranchPrefix + ts + "-next-task"
+}
+
+func normalizePRMetadata(done agent.Action) (string, string) {
+	title := strings.TrimSpace(done.PRTitle)
+	if title == "" {
+		summary := strings.TrimSpace(done.Summary)
+		if summary == "" {
+			title = "Agent task"
+		} else {
+			title = summary
+		}
+	}
+	if len(title) > 72 {
+		title = title[:72]
+	}
+
+	body := strings.TrimSpace(done.PRBody)
+	if body == "" {
+		summary := strings.TrimSpace(done.Summary)
+		if summary == "" {
+			body = "Implemented by Codex under simug orchestration."
+		} else {
+			body = summary
+		}
+	}
+	return title, body
+}
+
+func loadConfig() (config, error) {
+	cfg := config{
+		PollInterval:      defaultPollInterval,
+		MainBranch:        defaultMainBranch,
+		BranchPrefix:      defaultBranchPrefix,
+		AgentCommand:      strings.TrimSpace(os.Getenv("SIMUG_AGENT_CMD")),
+		MaxRepairAttempts: defaultMaxRepairAttempts,
+		AllowedUsers:      map[string]struct{}{},
+		AllowedVerbs:      splitCSVSet(defaultAllowedVerbs),
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_POLL_SECONDS")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v <= 0 {
+			return config{}, fmt.Errorf("invalid SIMUG_POLL_SECONDS %q", raw)
+		}
+		cfg.PollInterval = time.Duration(v) * time.Second
+	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_MAIN_BRANCH")); raw != "" {
+		cfg.MainBranch = raw
+	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_BRANCH_PREFIX")); raw != "" {
+		cfg.BranchPrefix = raw
+	}
+	if !strings.HasSuffix(cfg.BranchPrefix, "/") {
+		cfg.BranchPrefix += "/"
+	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_MAX_REPAIR_ATTEMPTS")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 0 || v > 10 {
+			return config{}, fmt.Errorf("invalid SIMUG_MAX_REPAIR_ATTEMPTS %q", raw)
+		}
+		cfg.MaxRepairAttempts = v
+	}
+	if cfg.AgentCommand == "" {
+		cfg.AgentCommand = "codex"
+	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_ALLOWED_COMMAND_USERS")); raw != "" {
+		cfg.AllowedUsers = splitCSVSet(raw)
+	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_ALLOWED_COMMAND_VERBS")); raw != "" {
+		cfg.AllowedVerbs = splitCSVSet(raw)
+	}
+	if len(cfg.AllowedVerbs) == 0 {
+		return config{}, fmt.Errorf("allowed command verbs set cannot be empty")
+	}
+
+	pattern := "^" + regexp.QuoteMeta(cfg.BranchPrefix) + `[0-9]{8}-[0-9]{6}-[a-z0-9][a-z0-9-]{2,40}$`
+	compiled, err := regexp.Compile(pattern)
+	if err != nil {
+		return config{}, fmt.Errorf("compile branch pattern: %w", err)
+	}
+	cfg.BranchPattern = compiled
+
+	return cfg, nil
+}
+
+func parseAgentCommands(body, author string, allowedUsers, allowedVerbs map[string]struct{}) ([]string, []string) {
+	var commands []string
+	var ignored []string
+
+	_, authorAllowed := allowedUsers[strings.ToLower(strings.TrimSpace(author))]
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), "/agent") {
+			if !authorAllowed {
+				ignored = append(ignored, trimmed+" (unauthorized author)")
+				continue
+			}
+
+			parts := strings.Fields(trimmed)
+			if len(parts) < 2 {
+				ignored = append(ignored, trimmed+" (missing command verb)")
+				continue
+			}
+			verb := strings.ToLower(strings.TrimSpace(parts[1]))
+			if _, ok := allowedVerbs[verb]; !ok {
+				ignored = append(ignored, trimmed+" (unsupported command)")
+				continue
+			}
+			commands = append(commands, trimmed)
+		}
+	}
+	return commands, ignored
+}
+
+func indentLines(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func limitString(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	if max < 4 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func sortedKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func splitCSVSet(raw string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, part := range strings.Split(raw, ",") {
+		v := strings.ToLower(strings.TrimSpace(part))
+		if v == "" {
+			continue
+		}
+		out[v] = struct{}{}
+	}
+	return out
+}
+
+func (o *orchestrator) logEvent(kind, message string, fields map[string]any) {
+	if o == nil || o.logger == nil {
+		return
+	}
+	if err := o.logger.log(kind, message, fields); err != nil {
+		fmt.Printf("warn: event log write failed: %v\n", err)
+	}
+}
+
+func acquireLock(repoRoot string) (func(), error) {
+	lockDir, err := runtimepaths.EnsureDataDir(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve runtime dir for lock: %w", err)
+	}
+
+	lockPath := filepath.Join(lockDir, "lock")
+	for attempt := 0; attempt < 2; attempt++ {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			_, _ = f.WriteString(fmt.Sprintf("pid=%d\ncreated_at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339)))
+			_ = f.Close()
+			return func() {
+				_ = os.Remove(lockPath)
+			}, nil
+		}
+
+		if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create lock file: %w", err)
+		}
+
+		stale, pid, staleErr := isLockStale(lockPath)
+		if staleErr != nil {
+			return nil, fmt.Errorf("existing lock %s could not be validated: %w", lockPath, staleErr)
+		}
+		if !stale {
+			return nil, fmt.Errorf("another simug process appears to be running (lock exists: %s, pid=%d)", lockPath, pid)
+		}
+		if err := os.Remove(lockPath); err != nil {
+			return nil, fmt.Errorf("remove stale lock file %s: %w", lockPath, err)
+		}
+	}
+
+	return nil, fmt.Errorf("could not acquire lock file after stale lock recovery attempt (%s)", lockPath)
+}
+
+func isLockStale(lockPath string) (bool, int, error) {
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return false, 0, fmt.Errorf("read lock file: %w", err)
+	}
+
+	var pid int
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "pid=") {
+			continue
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(line, "pid="))
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			return false, 0, fmt.Errorf("invalid pid in lock file: %q", raw)
+		}
+		pid = parsed
+		break
+	}
+	if pid == 0 {
+		return false, 0, fmt.Errorf("lock file missing pid field")
+	}
+
+	exists, err := processExists(pid)
+	if err != nil {
+		return false, pid, err
+	}
+	return !exists, pid, nil
+}
+
+func processExists(pid int) (bool, error) {
+	err := syscall.Kill(pid, 0)
+	if err == nil || errors.Is(err, syscall.EPERM) {
+		return true, nil
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		return false, nil
+	}
+	return false, fmt.Errorf("check process %d existence: %w", pid, err)
+}
