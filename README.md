@@ -120,6 +120,7 @@ Common targets:
 - `make selfhost-loop ITERATIONS=5`
 - `make canary-gate CODEX_CMD="codex exec"`
 - `make chaos`
+- `make sandbox-dry-run REPO=. ISSUE_PR=<n> PLANNING_PR=<n> [ISSUE=<n>]`
 
 ## Running in Any Repository
 
@@ -271,6 +272,12 @@ For stop/restart chaos validation:
 scripts/chaos-stop-restart.sh --repo . --sleep-seconds 2
 ```
 
+Prerequisites for chaos validation:
+
+- repository checkout has an `origin` remote,
+- `gh auth status` succeeds,
+- working tree is clean.
+
 Go/no-go criteria for enabling self-host default are documented in `docs/runbooks/SELF_HOST_GO_NO_GO.md`.
 
 ## Real Codex Protocol Canary
@@ -301,7 +308,11 @@ To verify live sandbox dry-run evidence (issue-driven + planning-driven PRs):
 
 ```bash
 scripts/sandbox-dry-run.sh --repo <owner/name> --issue-pr <n> --planning-pr <n> --issue <n>
+# or from local checkout path:
+scripts/sandbox-dry-run.sh --repo . --issue-pr <n> --planning-pr <n> --issue <n>
 ```
+
+`sandbox-dry-run` is an evidence verifier, not a smoke test: PR numbers must already exist and be merged.
 
 What it does per iteration:
 

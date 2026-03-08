@@ -25,6 +25,13 @@ Optional:
 1. Continuous run interrupted via `SIGTERM`, then resumed with `run --once`.
 2. Continuous run interrupted via `SIGKILL`, then resumed with `run --once`.
 
+## Preconditions
+
+- `--repo` points to a git checkout.
+- Checkout has an `origin` remote configured.
+- `gh auth status` succeeds.
+- Working tree is clean before starting chaos run.
+
 ## Output Artifacts
 
 - `.simug/chaos/<timestamp>/scenario1.log`

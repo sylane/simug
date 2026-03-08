@@ -32,11 +32,16 @@ Run:
 
 ```bash
 scripts/sandbox-dry-run.sh \
-  --repo <owner/name> \
+  --repo <owner/name|path> \
   --issue-pr <issue_driven_pr_number> \
   --planning-pr <planning_driven_pr_number> \
   --issue <issue_number>
 ```
+
+Notes:
+
+- `--repo` accepts either `owner/name` or a local checkout path (for example `.`).
+- This command verifies existing evidence; it does not create PRs.
 
 Optional: include `--run-gate` to execute real-Codex canary gate before evidence verification.
 

@@ -64,9 +64,7 @@ canary-gate: ## Run combined real-Codex validation gate
 	scripts/canary-real-codex-gate.sh --cmd "$(CODEX_CMD)" --out "$(CANARY_OUT)"
 
 sandbox-dry-run: ## Validate sandbox dry-run evidence (requires ISSUE_PR and PLANNING_PR)
-	@test -n "$(ISSUE_PR)" || (echo "ISSUE_PR is required" >&2; exit 64)
-	@test -n "$(PLANNING_PR)" || (echo "PLANNING_PR is required" >&2; exit 64)
-	scripts/sandbox-dry-run.sh --repo "$(REPO)" --issue-pr "$(ISSUE_PR)" --planning-pr "$(PLANNING_PR)" $(if $(ISSUE),--issue "$(ISSUE)",)
+	scripts/sandbox-dry-run.sh --repo "$(REPO)" $(if $(ISSUE_PR),--issue-pr "$(ISSUE_PR)",) $(if $(PLANNING_PR),--planning-pr "$(PLANNING_PR)",) $(if $(ISSUE),--issue "$(ISSUE)",)
 
 chaos: ## Run stop/restart chaos validation
 	scripts/chaos-stop-restart.sh --repo $(REPO) --sleep-seconds $(SLEEP_SECONDS)

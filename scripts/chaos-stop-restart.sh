@@ -6,7 +6,20 @@ usage() {
 usage: scripts/chaos-stop-restart.sh [--repo <path>] [--agent-cmd <cmd>] [--sleep-seconds <n>]
 
 Runs stop/restart chaos scenarios against simug and validates basic recovery invariants.
+Prerequisites: git checkout with origin remote, clean working tree, authenticated gh session.
 EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 64
+}
+
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    die "missing required command '$cmd' (install it and retry)"
+  fi
 }
 
 repo=""
@@ -55,6 +68,18 @@ mkdir -p bin .simug/chaos
 run_dir=".simug/chaos/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$run_dir"
 
+require_cmd go
+require_cmd git
+require_cmd gh
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "--repo '$repo' is not a git checkout"
+git remote get-url origin >/dev/null 2>&1 || die "missing git remote 'origin' in '$repo' (set it with: git remote add origin git@github.com:<owner>/<repo>.git)"
+gh auth status >/dev/null 2>&1 || die "gh is not authenticated; run 'gh auth login' and retry"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  die "working tree is not clean; commit/stash changes before running chaos validation"
+fi
+
 GOCACHE=/tmp/go-build go build -o bin/simug ./cmd/simug
 
 validate_invariants() {
@@ -98,7 +123,12 @@ echo "scenario 1: SIGTERM during continuous run"
 SIMUG_AGENT_CMD="$agent_cmd" ./bin/simug run >"$run_dir/scenario1.log" 2>&1 &
 pid1=$!
 sleep "$sleep_seconds"
-kill -TERM "$pid1" || true
+if ! kill -0 "$pid1" 2>/dev/null; then
+  echo "scenario 1 process exited before signal (see log): $run_dir/scenario1.log" >&2
+  tail -n 40 "$run_dir/scenario1.log" >&2 || true
+  exit 1
+fi
+kill -TERM "$pid1"
 wait "$pid1" || true
 
 echo "scenario 1 restart: run --once"
@@ -112,7 +142,12 @@ echo "scenario 2: SIGKILL during continuous run"
 SIMUG_AGENT_CMD="$agent_cmd" ./bin/simug run >"$run_dir/scenario2.log" 2>&1 &
 pid2=$!
 sleep "$sleep_seconds"
-kill -KILL "$pid2" || true
+if ! kill -0 "$pid2" 2>/dev/null; then
+  echo "scenario 2 process exited before signal (see log): $run_dir/scenario2.log" >&2
+  tail -n 40 "$run_dir/scenario2.log" >&2 || true
+  exit 1
+fi
+kill -KILL "$pid2"
 wait "$pid2" || true
 
 echo "scenario 2 restart: run --once"
