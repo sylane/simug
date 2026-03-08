@@ -30,8 +30,9 @@ When phase ordering conflicts with design alignment, execute tasks in this order
 11. Task 6.5c (real Codex validation gate integration)
 12. Task 6.10a (Codex command auto-detection + non-interactive defaults)
 13. Task 6.10b (Codex runtime preflight diagnostics)
-14. Task 6.10c (real-Codex canary reliability + documentation)
-15. Task 6.3+ (remaining self-hosting continuation)
+14. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
+15. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
+16. Task 6.3+ (remaining self-hosting continuation)
 
 Rationale:
 - Design requires orchestrator/project ownership boundary first.
@@ -256,9 +257,13 @@ Execution note:
   - Scope: add deterministic preflight checks and actionable failure messages for common Codex runtime blockers (missing command, auth missing/invalid, unwritable Codex home/cache paths including `~/.codex/tmp/arg0` style permission failures) without taking ownership of Codex account setup.
   - Done when: canary/simug startup failures surface precise diagnostics that identify environment fix actions instead of opaque command errors.
 
-- [ ] **Task 6.10c: Real-Codex canary reliability and operator docs**
-  - Scope: strengthen canary gate reliability with clear runtime assumptions, recommended command profiles, and troubleshooting/runbook updates tied to archived artifacts.
-  - Done when: real-Codex canary execution is reproducible in a standard developer environment and documented with deterministic troubleshooting flow.
+- [ ] **Task 6.10c: Environment-configured Codex compatibility + passing real-Codex gate**
+  - Scope: make simug real-runtime integration work with environment-configured Codex out of the box (`codex exec` default path), including robust parsing/ingestion of real Codex output and elimination of known protocol false failures in canary flows.
+  - Done when: `scripts/canary-real-codex-gate.sh` passes in a standard environment-configured Codex setup without requiring custom `CODEX_HOME`/`CODEX_SQLITE_HOME` overrides.
+
+- [x] **Task 6.10d: Workflow enforcement of real-Codex gate for all future tasks**
+  - Scope: codify `scripts/canary-real-codex-gate.sh` as mandatory Definition-of-Done evidence for all future implementation tasks and align AGENTS/workflow wording with this requirement.
+  - Done when: workflow/agents docs explicitly block task finalization without recent passing real-Codex gate evidence (or explicit manager waiver recorded in task history).
 
 ## Phase 7: Maintainability, Modularity, and Safety Hardening (Priority)
 

@@ -57,3 +57,5 @@ https://keepachangelog.com/en/1.1.0/
 - Added design-first execution ordering in planning to prioritize ownership-boundary and issue-lifecycle completion before remaining self-hosting milestones.
 - Expanded design document with feasibility assessment, explicit known gaps, issue lifecycle target behavior, and mode-to-action handling matrix.
 - Updated real-Codex canary scripts, gate docs, README examples, and Make defaults to use/auto-detect non-interactive `codex exec` by default while preserving explicit command overrides.
+- Tightened workflow/agent policy so real-Codex gate evidence (`scripts/canary-real-codex-gate.sh`) is a mandatory completion criterion for future tasks, and documented runbook docs as operational validation procedures.
+- Declared `history/*` files immutable after commit in workflow rules; follow-up clarifications must be recorded in new history files.

@@ -63,6 +63,8 @@ simug run
 - Add or update tests with behavior changes.
 - Run focused tests during iteration.
 - Run full suite before finalizing.
+- Run real-Codex validation gate before finalizing task work:
+  - `scripts/canary-real-codex-gate.sh`
 - Do not remove or weaken tests only to make the run pass.
 
 ## Project Structure
@@ -93,6 +95,7 @@ Follow `docs/WORKFLOW.md` exactly:
 1. Select task from `docs/PLANNING.md` and mark `[IN_PROGRESS]`.
    - If planning contains `Priority Realignment (Design-First Execution Order)`, use that queue before phase order.
 2. Create `history/<YYYYMMDDTHHMMSSZ>__task-<task-id>__<short-description>.md`.
+   - History files are immutable after commit; never edit previous `history/*` files.
 3. Implement with tests and validation.
 4. Update `CHANGELOG.md` with final outcomes.
 5. Write `.git/SIMUG_COMMIT_MSG` and commit with:

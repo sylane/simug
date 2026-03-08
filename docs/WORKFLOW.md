@@ -13,6 +13,12 @@ Architecture and behavior contracts are tracked in `docs/DESIGN.md`.
   - `docs/DESIGN.md`
 - Task backlog/status:
   - `docs/PLANNING.md`
+- Operational validation runbooks (execution procedures + evidence artifacts):
+  - `docs/REAL_CODEX_GATE.md`
+  - `docs/SANDBOX_DRY_RUN.md`
+  - `docs/SELF_HOST_CANARY.md`
+  - `docs/CHAOS_STOP_RESTART.md`
+  - `docs/SELF_HOST_GO_NO_GO.md`
 
 ## Core Principles
 
@@ -98,6 +104,7 @@ Required process for Codex during self-hosted development:
 7. Iterate with focused tests during implementation.
 8. Run full relevant validation again.
 9. Finalize task history file with durable decisions and evidence only.
+   - History files are immutable after their commit lands. If a correction is needed later, add a new history file in a follow-up task; do not edit prior history files.
 10. Update `CHANGELOG.md` with final task outcomes (not intermediate churn).
 11. Prepare commit message file and commit.
     - Write `.git/SIMUG_COMMIT_MSG`.
@@ -175,6 +182,12 @@ Message rules:
 - Do not include acceptance criteria checklists or test logs in commit message body.
 - Do not duplicate full commit text inside `history/` files.
 
+## History File Immutability
+
+- Create `history/*` files only as part of an active task commit.
+- After commit, treat history files as append-only record snapshots and do not modify them.
+- If a prior decision/evidence needs clarification, add a new history file in the current task instead of rewriting older history.
+
 ## Quality Gates
 
 Before finalizing a task:
@@ -188,7 +201,7 @@ Before finalizing a task:
 - `.git/SIMUG_COMMIT_MSG` exists and is non-empty.
 - Planning refinement pass is completed and reflected in `docs/PLANNING.md` or explicitly recorded as `None` in task history.
 - Task context exists in `history/` and includes concise validation evidence.
-- For real-runtime readiness gates, `scripts/canary-real-codex-gate.sh` is executed and artifacts are retained per `docs/REAL_CODEX_GATE.md`.
+- `scripts/canary-real-codex-gate.sh` passes in the current environment-configured Codex setup and artifacts are retained per `docs/REAL_CODEX_GATE.md`.
 - For self-host default enablement decisions, checklist in `docs/SELF_HOST_GO_NO_GO.md` is evaluated and archived.
 
 If `go` or `gh` is unavailable in the execution environment, record this explicitly in task completion notes and run the gates on the next environment where tools are available.
@@ -205,6 +218,7 @@ A task is DONE only if all are true:
 - `CHANGELOG.md` updated,
 - `.git/SIMUG_COMMIT_MSG` prepared,
 - planning refinement pass completed for future tasks (or explicitly `None` in task history),
+- real-Codex gate passed with retained artifact evidence (`scripts/canary-real-codex-gate.sh`),
 - completion report includes residual risks/follow-ups.
 
 ## Protocol Discipline
