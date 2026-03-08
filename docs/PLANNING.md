@@ -252,7 +252,7 @@ Execution note:
   - Scope: when `SIMUG_AGENT_CMD` is unset, detect available Codex CLI mode and prefer `codex exec` for non-interactive operation with fallback compatibility; align canary scripts/Make targets/docs with the same non-interactive default while preserving explicit `--cmd`/env overrides.
   - Done when: out-of-box runs use a non-interactive Codex command by default in most environments, and operators can still override command/profile/config explicitly.
 
-- [ ] **Task 6.10b: Codex runtime preflight diagnostics**
+- [x] **Task 6.10b: Codex runtime preflight diagnostics**
   - Scope: add deterministic preflight checks and actionable failure messages for common Codex runtime blockers (missing command, auth missing/invalid, unwritable Codex home/cache paths including `~/.codex/tmp/arg0` style permission failures) without taking ownership of Codex account setup.
   - Done when: canary/simug startup failures surface precise diagnostics that identify environment fix actions instead of opaque command errors.
 

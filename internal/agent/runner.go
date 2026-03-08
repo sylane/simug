@@ -103,8 +103,12 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 	out, err := cmd.CombinedOutput()
 	raw := string(out)
 	if err != nil {
+		cause := fmt.Errorf("agent command failed: %w: %s", err, strings.TrimSpace(raw))
+		if hint := CodexRuntimeHint(r.Command, raw); hint != "" {
+			cause = fmt.Errorf("%w | hint: %s", cause, hint)
+		}
 		return Result{}, &RunError{
-			Cause:     fmt.Errorf("agent command failed: %w: %s", err, strings.TrimSpace(raw)),
+			Cause:     cause,
 			RawOutput: raw,
 		}
 	}

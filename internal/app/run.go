@@ -122,6 +122,9 @@ func run(ctx context.Context, startDir string, once bool) error {
 	if err != nil {
 		return err
 	}
+	if err := preflightAgentCommand(cfg.AgentCommand); err != nil {
+		return err
+	}
 
 	files := []string{
 		filepath.Join(repoRoot, "AGENT.md"),

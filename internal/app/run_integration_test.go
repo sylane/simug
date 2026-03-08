@@ -37,6 +37,7 @@ func commandKey(name string, args ...string) string {
 }
 
 func TestRunFailsWhenMultipleAuthoredOpenPRsExist(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
 	tmp := t.TempDir()
 	runner := mockCommandRunner{responses: map[string]string{
 		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
@@ -66,6 +67,7 @@ func TestRunFailsWhenMultipleAuthoredOpenPRsExist(t *testing.T) {
 }
 
 func TestRunFailsOnCheckoutMismatchForManagedPR(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
 	runner := mockCommandRunner{responses: map[string]string{
@@ -1595,6 +1597,7 @@ func TestRunOnceRecoversInFlightAttemptWithRepairAction(t *testing.T) {
 }
 
 func TestRunRecoveryAbortOnDirtyTree(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
 		t.Fatalf("mkdir runtime dir: %v", err)

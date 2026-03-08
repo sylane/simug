@@ -283,6 +283,7 @@ scripts/canary-real-codex-protocol.sh --cmd "codex exec" --out .simug/canary/rea
 
 This runs `TestRealCodexProtocolConformanceCanary` with real runtime prompts and archives per-scenario artifacts (`prompt.txt`, `raw_output.txt`, `result.json`) under the chosen output directory.
 When `--cmd` is omitted, the script auto-detects and prefers `codex exec`.
+For Codex commands, scripts run a lightweight preflight (`--help`) and fail fast with actionable diagnostics for auth/path-permission blockers.
 
 To validate repair/restart boundaries with real Codex runtime:
 

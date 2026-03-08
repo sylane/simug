@@ -23,6 +23,26 @@ default_agent_cmd() {
   printf 'codex exec'
 }
 
+preflight_agent_cmd() {
+  if [[ "$agent_cmd" != codex* ]]; then
+    return 0
+  fi
+
+  local output
+  output="$(bash -lc "$agent_cmd --help" 2>&1 || true)"
+
+  if printf '%s' "$output" | grep -qi "permission denied" && \
+     printf '%s' "$output" | grep -qiE "\\.codex/tmp/arg0|failed to clean up stale arg0 temp dirs|failed to renew cache ttl|could not update path"; then
+    echo "codex preflight failed: runtime paths appear unwritable; fix ~/.codex permissions (especially ~/.codex/tmp/arg0) or set CODEX_HOME/CODEX_SQLITE_HOME to writable paths" >&2
+    return 2
+  fi
+
+  if printf '%s' "$output" | grep -qiE "401 unauthorized|invalid_api_key|authentication failed"; then
+    echo "codex preflight failed: authentication appears invalid or missing; run codex login in this environment" >&2
+    return 2
+  fi
+}
+
 agent_cmd="${SIMUG_REAL_CODEX_CMD:-$(default_agent_cmd)}"
 out_dir=".simug/canary/real-codex"
 
@@ -53,6 +73,8 @@ mkdir -p "$out_dir"
 echo "running real Codex recovery canary"
 echo "agent command: $agent_cmd"
 echo "artifact root: $out_dir"
+
+preflight_agent_cmd
 
 SIMUG_REAL_CODEX=1 \
 SIMUG_REAL_CODEX_CMD="$agent_cmd" \

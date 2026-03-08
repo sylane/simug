@@ -25,6 +25,7 @@ scripts/canary-real-codex-gate.sh --cmd "codex exec" --out .simug/canary/real-co
 ```
 
 If `--cmd` is omitted, scripts auto-detect and prefer non-interactive `codex exec`.
+Scripts run a codex preflight probe and fail fast with actionable diagnostics for auth or runtime-path permission blockers before canary tests start.
 
 ## Expected Runtime/Cost Envelope
 
