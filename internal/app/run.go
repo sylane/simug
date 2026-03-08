@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -31,6 +32,8 @@ const (
 	maxCommentBodyChars      = 4000
 	defaultAllowedVerbs      = "do,retry,status,continue,comment,report,help"
 )
+
+var bootstrapIntentSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,40}$`)
 
 type config struct {
 	PollInterval      time.Duration
@@ -493,6 +496,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			"to":   string(state.ModeIssueTriage),
 		})
 		o.state.Mode = state.ModeIssueTriage
+		o.state.BootstrapIntent = nil
 	}
 
 	if err := o.ensureMainReady(ctx); err != nil {
@@ -515,6 +519,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		}
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
+		o.state.BootstrapIntent = nil
 		var selected *github.Issue
 		if len(issues) > 0 {
 			selected = &issues[0]
@@ -581,13 +586,62 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		return fmt.Errorf("unexpected no-PR mode %q", o.state.Mode)
 	}
 
-	beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
-	if err != nil {
-		return fmt.Errorf("read main HEAD before agent run: %w", err)
+	if o.state.BootstrapIntent == nil {
+		beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
+		if err != nil {
+			return fmt.Errorf("read main HEAD before bootstrap intent run: %w", err)
+		}
+
+		var approved state.BootstrapIntent
+		intentPrompt := o.buildBootstrapIntentPrompt(o.state.PendingTaskID, "")
+		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, func(result agent.Result) error {
+			intent, validateErr := o.validateBootstrapIntentResult(result, o.state.PendingTaskID)
+			if validateErr != nil {
+				return validateErr
+			}
+			approved = intent
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		if intentResult.Terminal.Type == agent.ActionIdle {
+			fmt.Printf("status: agent idle during bootstrap intent: %s\n", strings.TrimSpace(intentResult.Terminal.Reason))
+			o.logEvent("agent_idle", "bootstrap intent returned idle", map[string]any{"reason": strings.TrimSpace(intentResult.Terminal.Reason)})
+			o.state.ActivePR = 0
+			o.state.ActiveBranch = ""
+			o.state.ActiveIssue = 0
+			o.state.PendingTaskID = ""
+			o.state.BootstrapIntent = nil
+			o.state.Mode = state.ModeIssueTriage
+			return nil
+		}
+		if beforeHead != afterHead {
+			return fmt.Errorf("bootstrap intent run must not move commits")
+		}
+
+		o.state.BootstrapIntent = &approved
+		o.logEvent("bootstrap_intent", "approved bootstrap intent before execution", map[string]any{
+			"task_ref":    approved.TaskRef,
+			"summary":     limitString(approved.Summary, 500),
+			"branch_slug": approved.BranchSlug,
+			"branch_name": approved.BranchName,
+			"pr_title":    limitString(approved.PRTitle, 300),
+			"checks":      approved.Checks,
+		})
+		fmt.Printf("status: bootstrap intent approved for branch %s; rerun to execute task\n", approved.BranchName)
+		return nil
 	}
 
-	expectedBranch := o.generateBranchName()
-	prompt := o.buildBootstrapPrompt(expectedBranch, o.state.PendingTaskID, "")
+	intent := *o.state.BootstrapIntent
+	beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
+	if err != nil {
+		return fmt.Errorf("read HEAD before bootstrap execution run: %w", err)
+	}
+
+	expectedBranch := intent.BranchName
+	prompt := o.buildBootstrapPrompt(intent, "")
 	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, func(result agent.Result) error {
 		return validateIssueUpdateActions(result.Actions)
 	})
@@ -597,21 +651,30 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	if result.Terminal.Type == agent.ActionIdle {
 		fmt.Printf("status: agent idle: %s\n", strings.TrimSpace(result.Terminal.Reason))
-		o.logEvent("agent_idle", "bootstrap agent returned idle", map[string]any{"reason": strings.TrimSpace(result.Terminal.Reason)})
+		o.logEvent("agent_idle", "bootstrap execution returned idle", map[string]any{"reason": strings.TrimSpace(result.Terminal.Reason)})
 		o.state.ActivePR = 0
 		o.state.ActiveBranch = ""
+		o.state.ActiveIssue = 0
+		o.state.PendingTaskID = ""
+		o.state.BootstrapIntent = nil
 		o.state.Mode = state.ModeIssueTriage
 		return nil
 	}
 
 	if !result.Terminal.Changes {
-		return fmt.Errorf("bootstrap run produced done action with changes=false; refusing to create PR")
+		return fmt.Errorf("bootstrap execution produced done action with changes=false; refusing to create PR")
 	}
 	if beforeHead == afterHead {
-		return fmt.Errorf("bootstrap run reported completion but no new commit was created")
+		return fmt.Errorf("bootstrap execution reported completion but no new commit was created")
 	}
 
 	title, body := normalizePRMetadata(result.Terminal)
+	if strings.TrimSpace(result.Terminal.PRTitle) == "" && strings.TrimSpace(intent.PRTitle) != "" {
+		title = strings.TrimSpace(intent.PRTitle)
+	}
+	if strings.TrimSpace(result.Terminal.PRBody) == "" && strings.TrimSpace(intent.PRBody) != "" {
+		body = strings.TrimSpace(intent.PRBody)
+	}
 
 	fmt.Printf("git: pushing new branch %s\n", expectedBranch)
 	o.logEvent("git_push", "pushing new branch before PR creation", map[string]any{"branch": expectedBranch})
@@ -634,6 +697,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	o.state.Mode = state.ModeManagedPR
 	o.state.ActiveIssue = 0
 	o.state.PendingTaskID = ""
+	o.state.BootstrapIntent = nil
 	fmt.Printf("status: created managed PR #%d (%s)\n", prNumber, expectedBranch)
 	o.logEvent("pr_created", "managed pull request created", map[string]any{"pr": prNumber, "branch": expectedBranch})
 
@@ -849,6 +913,9 @@ func (o *orchestrator) validatePostAgentState(ctx context.Context, result agent.
 		}
 		if result.Terminal.Changes && beforeHead == afterHead {
 			return "", fmt.Errorf("done action indicates changes=true but no new commit exists")
+		}
+		if !result.Terminal.Changes && beforeHead != afterHead {
+			return "", fmt.Errorf("done action indicates changes=false but commits changed during run")
 		}
 	case agent.ActionIdle:
 		if beforeHead != afterHead {
@@ -1555,14 +1622,47 @@ func (o *orchestrator) buildIssueTriagePrompt(issue github.Issue, repairInstruct
 	return b.String()
 }
 
-func (o *orchestrator) buildBootstrapPrompt(expectedBranch, pendingTaskID, repairInstruction string) string {
+func (o *orchestrator) buildBootstrapIntentPrompt(pendingTaskID, repairInstruction string) string {
 	var b strings.Builder
 	b.WriteString("You are Codex running under simug orchestration.\n")
-	b.WriteString("No managed open PR currently exists. Start the next task from docs/PLANNING.md and docs/WORKFLOW.md.\n")
+	b.WriteString("No managed open PR currently exists. This turn is INTENT-ONLY planning; do not modify files.\n")
 	b.WriteString("Hard rules:\n")
-	b.WriteString(fmt.Sprintf("- Create and use branch EXACTLY named: %s\n", expectedBranch))
+	b.WriteString("- Stay on main and do not create/switch branches in this turn.\n")
+	b.WriteString("- Do NOT edit files. Do NOT commit. Do NOT push. Do NOT create PR.\n")
+	b.WriteString("- Evaluate docs/PLANNING.md and docs/WORKFLOW.md to select the next task scope.\n")
 	if strings.TrimSpace(pendingTaskID) != "" {
-		b.WriteString(fmt.Sprintf("- Start specifically with Task %s from docs/PLANNING.md before any other pending task.\n", strings.TrimSpace(pendingTaskID)))
+		b.WriteString(fmt.Sprintf("- Prioritize pending issue-derived task context: Task %s.\n", strings.TrimSpace(pendingTaskID)))
+	}
+	b.WriteString("- Emit exactly one intent comment and one terminal action.\n")
+	b.WriteString("- Intent comment body must start with INTENT_JSON: followed by compact JSON.\n")
+	b.WriteString("- Use SIMUG_MANAGER: for manager-facing human text; unprefixed text is quarantined.\n")
+	if repairInstruction != "" {
+		b.WriteString("Repair instruction:\n")
+		b.WriteString(repairInstruction)
+		b.WriteString("\n")
+	}
+	b.WriteString("Protocol JSON lines:\n")
+	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
+	b.WriteString(`SIMUG: {"action":"comment","body":"INTENT_JSON:{\"task_ref\":\"Task 7.2a\",\"summary\":\"...\",\"branch_slug\":\"intent-handshake\",\"pr_title\":\"...\",\"pr_body\":\"...\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}` + "\n")
+	b.WriteString(`SIMUG: {"action":"done","summary":"intent prepared","changes":false}` + "\n")
+	b.WriteString(`SIMUG: {"action":"idle","reason":"no task available"}` + "\n")
+	b.WriteString("Exactly one terminal action (done or idle) is required.\n")
+	return b.String()
+}
+
+func (o *orchestrator) buildBootstrapPrompt(intent state.BootstrapIntent, repairInstruction string) string {
+	var b strings.Builder
+	b.WriteString("You are Codex running under simug orchestration.\n")
+	b.WriteString("No managed open PR currently exists. Execute the approved bootstrap intent from the previous planning turn.\n")
+	b.WriteString("Hard rules:\n")
+	b.WriteString(fmt.Sprintf("- Create and use branch EXACTLY named: %s\n", intent.BranchName))
+	b.WriteString(fmt.Sprintf("- Approved task reference: %s\n", strings.TrimSpace(intent.TaskRef)))
+	b.WriteString(fmt.Sprintf("- Approved summary: %s\n", limitString(strings.TrimSpace(intent.Summary), 500)))
+	b.WriteString(fmt.Sprintf("- Approved branch slug: %s\n", intent.BranchSlug))
+	b.WriteString(fmt.Sprintf("- Approved PR title draft: %s\n", limitString(strings.TrimSpace(intent.PRTitle), 300)))
+	b.WriteString(fmt.Sprintf("- Approved PR body draft: %s\n", limitString(strings.TrimSpace(intent.PRBody), 1200)))
+	if len(intent.Checks) > 0 {
+		b.WriteString(fmt.Sprintf("- Approved validation checks: %s\n", strings.Join(intent.Checks, " | ")))
 	}
 	b.WriteString("- Implement the next task and commit changes locally when complete.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
@@ -1584,6 +1684,136 @@ func (o *orchestrator) buildBootstrapPrompt(expectedBranch, pendingTaskID, repai
 	b.WriteString(`SIMUG: {"action":"idle","reason":"no task available"}` + "\n")
 	b.WriteString("Exactly one terminal action (done or idle) is required.\n")
 	return b.String()
+}
+
+type bootstrapIntentProposal struct {
+	TaskRef    string   `json:"task_ref"`
+	Summary    string   `json:"summary"`
+	BranchSlug string   `json:"branch_slug"`
+	PRTitle    string   `json:"pr_title"`
+	PRBody     string   `json:"pr_body"`
+	Checks     []string `json:"checks"`
+}
+
+func (o *orchestrator) validateBootstrapIntentResult(result agent.Result, pendingTaskID string) (state.BootstrapIntent, error) {
+	if result.Terminal.Type == agent.ActionIdle {
+		if len(result.Actions) != 1 {
+			return state.BootstrapIntent{}, fmt.Errorf("bootstrap intent idle result must not include non-terminal actions")
+		}
+		return state.BootstrapIntent{}, nil
+	}
+	if result.Terminal.Type != agent.ActionDone {
+		return state.BootstrapIntent{}, fmt.Errorf("bootstrap intent requires terminal done or idle action")
+	}
+	if result.Terminal.Changes {
+		return state.BootstrapIntent{}, fmt.Errorf("bootstrap intent done action must set changes=false")
+	}
+
+	commentCount := 0
+	var commentBody string
+	for _, a := range result.Actions {
+		switch a.Type {
+		case agent.ActionComment:
+			commentCount++
+			commentBody = a.Body
+		case agent.ActionDone:
+		default:
+			return state.BootstrapIntent{}, fmt.Errorf("bootstrap intent mode does not allow action %q", a.Type)
+		}
+	}
+	if commentCount != 1 {
+		return state.BootstrapIntent{}, fmt.Errorf("bootstrap intent mode requires exactly one comment action, got %d", commentCount)
+	}
+
+	proposal, err := parseBootstrapIntentProposal(commentBody)
+	if err != nil {
+		return state.BootstrapIntent{}, err
+	}
+	if strings.TrimSpace(pendingTaskID) != "" {
+		if !strings.Contains(strings.ToLower(strings.TrimSpace(proposal.TaskRef)), strings.ToLower(strings.TrimSpace(pendingTaskID))) {
+			return state.BootstrapIntent{}, fmt.Errorf("intent task_ref %q does not match required pending task %q", proposal.TaskRef, pendingTaskID)
+		}
+	}
+
+	slug := sanitizeBranchSlug(proposal.BranchSlug)
+	if !bootstrapIntentSlugPattern.MatchString(slug) {
+		return state.BootstrapIntent{}, fmt.Errorf("intent branch_slug %q is invalid after normalization", proposal.BranchSlug)
+	}
+
+	checks := make([]string, 0, len(proposal.Checks))
+	for _, c := range proposal.Checks {
+		if trimmed := strings.TrimSpace(c); trimmed != "" {
+			checks = append(checks, trimmed)
+		}
+	}
+
+	return state.BootstrapIntent{
+		TaskRef:    strings.TrimSpace(proposal.TaskRef),
+		Summary:    strings.TrimSpace(proposal.Summary),
+		BranchSlug: slug,
+		BranchName: o.generateBranchName(slug),
+		PRTitle:    strings.TrimSpace(proposal.PRTitle),
+		PRBody:     strings.TrimSpace(proposal.PRBody),
+		Checks:     checks,
+		ApprovedAt: time.Now().UTC(),
+	}, nil
+}
+
+func parseBootstrapIntentProposal(commentBody string) (bootstrapIntentProposal, error) {
+	body := strings.TrimSpace(commentBody)
+	if !strings.HasPrefix(body, "INTENT_JSON:") {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent comment must start with INTENT_JSON:")
+	}
+	rawJSON := strings.TrimSpace(strings.TrimPrefix(body, "INTENT_JSON:"))
+	if rawJSON == "" {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent json payload is empty")
+	}
+
+	var proposal bootstrapIntentProposal
+	if err := json.Unmarshal([]byte(rawJSON), &proposal); err != nil {
+		return bootstrapIntentProposal{}, fmt.Errorf("decode bootstrap intent payload: %w", err)
+	}
+	if strings.TrimSpace(proposal.TaskRef) == "" {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent requires non-empty task_ref")
+	}
+	if strings.TrimSpace(proposal.Summary) == "" {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent requires non-empty summary")
+	}
+	if strings.TrimSpace(proposal.BranchSlug) == "" {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent requires non-empty branch_slug")
+	}
+	if strings.TrimSpace(proposal.PRTitle) == "" {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent requires non-empty pr_title")
+	}
+	if strings.TrimSpace(proposal.PRBody) == "" {
+		return bootstrapIntentProposal{}, fmt.Errorf("bootstrap intent requires non-empty pr_body")
+	}
+	return proposal, nil
+}
+
+func sanitizeBranchSlug(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	normalized := strings.Trim(b.String(), "-")
+	if len(normalized) > 41 {
+		normalized = strings.Trim(normalized[:41], "-")
+	}
+	return normalized
 }
 
 func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr error) string {
@@ -1612,9 +1842,13 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	return b.String()
 }
 
-func (o *orchestrator) generateBranchName() string {
+func (o *orchestrator) generateBranchName(slug string) string {
 	ts := time.Now().UTC().Format("20060102-150405")
-	return o.cfg.BranchPrefix + ts + "-next-task"
+	normalized := sanitizeBranchSlug(slug)
+	if normalized == "" {
+		normalized = "next-task"
+	}
+	return o.cfg.BranchPrefix + ts + "-" + normalized
 }
 
 func normalizePRMetadata(done agent.Action) (string, string) {

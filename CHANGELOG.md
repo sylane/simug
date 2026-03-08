@@ -50,6 +50,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added Codex preflight checks in startup and canary scripts to fail fast on auth/path-permission blockers before orchestration/canary execution.
 - Added protocol-sequence collapse for real Codex transcript echoes so identical repeated terminal sequences are normalized to one final actionable sequence.
 - Added protocol-first runner recovery so non-zero Codex exits are accepted when emitted output is still fully parseable and protocol-valid.
+- Added staged bootstrap intent handshake for no-PR flow: a read-only intent turn (`INTENT_JSON` + `done changes=false`) that persists validated `bootstrap_intent` in state before execution is allowed.
+- Added bootstrap intent parsing/validation unit tests and updated integration coverage for deterministic issue selection and pending-task targeting under staged intent flow.
 
 ### Changed
 
@@ -65,3 +67,4 @@ https://keepachangelog.com/en/1.1.0/
 - Tightened workflow/agent policy so real-Codex gate evidence (`scripts/canary-real-codex-gate.sh`) is a mandatory completion criterion for future tasks, and documented runbook docs as operational validation procedures.
 - Declared `history/*` files immutable after commit in workflow rules; follow-up clarifications must be recorded in new history files.
 - Moved operational runbooks from `docs/` to `docs/runbooks/` and updated project references so top-level docs remain focused on design/planning/workflow guidance.
+- Changed no-PR bootstrap orchestration from single-turn execution to a two-stage contract (`intent` tick, then `execution` tick) with explicit commit/no-commit invariants per stage.

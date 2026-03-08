@@ -20,21 +20,22 @@ const (
 )
 
 type State struct {
-	Repo                string      `json:"repo"`
-	ActivePR            int         `json:"active_pr"`
-	ActiveBranch        string      `json:"active_branch"`
-	Mode                Mode        `json:"mode"`
-	ActiveIssue         int         `json:"active_issue"`
-	PendingTaskID       string      `json:"pending_task_id"`
-	IssueLinks          []IssueLink `json:"issue_links,omitempty"`
-	InFlightAttempt     *Attempt    `json:"in_flight_attempt,omitempty"`
-	LastRecovery        *Recovery   `json:"last_recovery,omitempty"`
-	LastCommentID       int64       `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
-	LastIssueCommentID  int64       `json:"last_issue_comment_id"`
-	LastReviewCommentID int64       `json:"last_review_comment_id"`
-	LastReviewID        int64       `json:"last_review_id"`
-	CursorUncertain     bool        `json:"cursor_uncertain"`
-	UpdatedAt           time.Time   `json:"updated_at"`
+	Repo                string           `json:"repo"`
+	ActivePR            int              `json:"active_pr"`
+	ActiveBranch        string           `json:"active_branch"`
+	Mode                Mode             `json:"mode"`
+	ActiveIssue         int              `json:"active_issue"`
+	PendingTaskID       string           `json:"pending_task_id"`
+	BootstrapIntent     *BootstrapIntent `json:"bootstrap_intent,omitempty"`
+	IssueLinks          []IssueLink      `json:"issue_links,omitempty"`
+	InFlightAttempt     *Attempt         `json:"in_flight_attempt,omitempty"`
+	LastRecovery        *Recovery        `json:"last_recovery,omitempty"`
+	LastCommentID       int64            `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
+	LastIssueCommentID  int64            `json:"last_issue_comment_id"`
+	LastReviewCommentID int64            `json:"last_review_comment_id"`
+	LastReviewID        int64            `json:"last_review_id"`
+	CursorUncertain     bool             `json:"cursor_uncertain"`
+	UpdatedAt           time.Time        `json:"updated_at"`
 }
 
 type AttemptPhase string
@@ -80,6 +81,17 @@ type Recovery struct {
 	AttemptRun string         `json:"attempt_run"`
 	AttemptSeq int64          `json:"attempt_tick_seq"`
 	RecordedAt time.Time      `json:"recorded_at"`
+}
+
+type BootstrapIntent struct {
+	TaskRef    string    `json:"task_ref"`
+	Summary    string    `json:"summary"`
+	BranchSlug string    `json:"branch_slug"`
+	BranchName string    `json:"branch_name"`
+	PRTitle    string    `json:"pr_title"`
+	PRBody     string    `json:"pr_body"`
+	Checks     []string  `json:"checks,omitempty"`
+	ApprovedAt time.Time `json:"approved_at"`
 }
 
 type IssueLink struct {
@@ -157,6 +169,23 @@ func (s *State) Normalize() {
 	if s.Mode == ModeManagedPR {
 		s.ActiveIssue = 0
 		s.PendingTaskID = ""
+		s.BootstrapIntent = nil
+	}
+
+	if s.Mode == ModeIssueTriage && s.ActivePR == 0 {
+		s.BootstrapIntent = nil
+	}
+
+	if s.BootstrapIntent != nil {
+		intent := s.BootstrapIntent
+		if strings.TrimSpace(intent.TaskRef) == "" ||
+			strings.TrimSpace(intent.Summary) == "" ||
+			strings.TrimSpace(intent.BranchSlug) == "" ||
+			strings.TrimSpace(intent.BranchName) == "" ||
+			strings.TrimSpace(intent.PRTitle) == "" ||
+			strings.TrimSpace(intent.PRBody) == "" {
+			s.BootstrapIntent = nil
+		}
 	}
 
 	if len(s.IssueLinks) > 0 {

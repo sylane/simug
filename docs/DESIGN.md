@@ -33,7 +33,7 @@ The objective is implementable with the current architecture:
 Current implementation still has known gaps relative to target design:
 
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Issue-task intake handoff still needs a richer Codex-mediated bootstrap context path (tracked in planning) beyond basic triage intent carry-over.
+- Execution-scope lock, parser echo hardening, and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -55,6 +55,7 @@ These invariants are enforced on every loop iteration.
 12. Codex output routing is explicit and prefix-based so coordinator can reliably separate machine protocol from manager-facing text.
 13. Orchestrator direct filesystem writes are limited to `.simug/*` runtime artifacts; project content changes come from Codex commits.
 14. Repository instruction documents (for example `AGENTS.md`) are optional Codex context inputs only, not orchestration control inputs.
+15. `task_bootstrap` execution runs are allowed only after a previously approved, persisted bootstrap intent.
 
 ## 3. Managed PR Definition
 
@@ -120,14 +121,22 @@ When no managed open PR exists:
    - orchestrator records issue-task intent in state/bootstrap context,
    - orchestrator does not parse or edit planning/workflow files directly,
    - Codex performs repo-specific planning/task-file updates through normal commits when needed.
-7. In `task_bootstrap` mode, instruct Codex to implement the selected work item and create branch with required pattern.
-8. Validate Codex output:
+7. In `task_bootstrap` mode with no approved intent, run an intent-only planning turn:
+   - Codex must stay on `main`,
+   - no file edits/commits/branch switching,
+   - protocol must emit exactly one intent `comment` (`INTENT_JSON:{...}`) plus terminal `done` (`changes=false`) or terminal `idle`.
+8. Validate and persist approved bootstrap intent (`task_ref`, `summary`, `branch_slug`, `pr_title`, `pr_body`, optional `checks`) in worker state as `bootstrap_intent`.
+9. In `task_bootstrap` mode with approved intent, run execution turn:
+   - Codex must execute the approved task scope,
+   - Codex must create/use derived managed branch `agent/<timestamp>-<branch_slug>`,
+   - Codex commits locally and emits terminal `done` (`changes=true`) or terminal `idle`.
+10. Validate Codex output:
    - branch matches managed pattern,
    - at least one new commit exists for `done + changes=true`,
    - working tree is clean.
-9. Orchestrator pushes branch and creates PR assigned to self.
-10. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR and resulting work trace.
-11. Store new PR as active and begin monitoring.
+11. Orchestrator pushes branch and creates PR assigned to self.
+12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR and resulting work trace.
+13. Store new PR as active and begin monitoring.
 
 If no authored open issues exist, bootstrap the next work item from project guidance (for example planning/workflow docs when present).
 
@@ -188,7 +197,8 @@ Per cycle:
    - run Codex and require one `issue_report`,
    - post orchestrator-owned issue analysis comment with deterministic triage marker metadata.
 7. If in `task_bootstrap` mode:
-   - run bootstrap prompt and follow branch/commit/cleanliness validations,
+   - if no approved `bootstrap_intent`: run intent-only prompt and persist validated intent,
+   - if approved `bootstrap_intent` exists: run execution prompt bound to that intent and follow branch/commit/cleanliness validations,
    - push/create PR via orchestrator only.
 8. Persist updated cursors and mode/state metadata.
 9. Sleep poll interval.
@@ -238,17 +248,19 @@ This section defines the concrete simug <-> Codex interactions by use case.
 
 #### D. No-PR work bootstrap (`task_bootstrap`)
 
-1. Simug prepares bootstrap prompt describing selected work intent.
-2. Simug instructs Codex to implement work, follow repo workflow guidance, and commit locally.
-3. Simug invokes Codex and validates terminal action + repo invariants:
-   - expected branch policy,
+1. Simug runs intent-only bootstrap prompt when `bootstrap_intent` is empty.
+2. Intent turn requires no repository mutations and exactly one `INTENT_JSON` comment plus terminal action.
+3. Simug validates intent payload and persists approved `bootstrap_intent`, then exits tick without push/PR side effects.
+4. Next `task_bootstrap` tick runs execution prompt bound to approved intent (task scope + branch slug + PR draft metadata).
+5. Simug validates terminal action + repo invariants:
+   - expected branch policy for approved intent branch,
    - clean tree,
    - `done + changes=true` requires new commit.
-4. If valid, simug performs orchestrator-owned remote mutations:
+6. If valid, simug performs orchestrator-owned remote mutations:
    - push branch,
    - create PR,
    - if issue-derived, add issue -> PR backlink comment.
-5. Simug stores `active_pr`/`active_branch` and transitions back to `managed_pr`.
+7. Simug stores `active_pr`/`active_branch`, clears `bootstrap_intent`, and transitions back to `managed_pr`.
 
 #### E. Repair and failure path (all modes)
 
@@ -368,9 +380,14 @@ This matrix defines how simug reacts to Codex protocol output by mode.
   - Required terminal: exactly one `done` or `idle` after `issue_report`.
   - Orchestrator reaction: validate report fields/mode constraints; post triage comment; transition to bootstrap intent.
 - `task_bootstrap`:
-  - Allowed non-terminal actions: `comment`, `issue_update` (optional manager-context signaling through coordinator path).
-  - Required terminal: exactly one `done` or `idle`.
-  - Orchestrator reaction: validate branch/commit/clean tree and issue-update payloads; push/create PR on valid `done + changes=true`; keep no-op on valid `idle`.
+  - Intent stage (no approved `bootstrap_intent`):
+    - Allowed non-terminal actions: exactly one `comment` carrying `INTENT_JSON:{...}`.
+    - Required terminal: `done` with `changes=false` or `idle`.
+    - Orchestrator reaction: validate no branch/commit movement, parse/validate intent, persist `bootstrap_intent`, do not push/create PR.
+  - Execution stage (approved `bootstrap_intent` exists):
+    - Allowed non-terminal actions: `comment`, `issue_update`.
+    - Required terminal: exactly one `done` or `idle`.
+    - Orchestrator reaction: validate branch/commit/clean tree and issue-update payloads; push/create PR on valid `done + changes=true`; clear intent on completion/idle.
 - Any mode with invalid action set or cardinality:
   - Orchestrator reaction: reject run, emit repair prompt, retry within bounded limit, then fail-closed.
 
@@ -387,10 +404,14 @@ After every Codex run:
    - reported issue number must match selected issue,
    - `analysis` must be non-empty,
    - `needs_task=true` requires non-empty task proposal metadata.
-7. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
-8. Manager-channel lines are size-limited and sanitized before display/logging.
-9. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.
-10. Merge finalization comments/closures must be idempotent and replay-safe across restart.
+7. In `task_bootstrap` intent stage:
+   - `done` must set `changes=false`,
+   - branch/commit must remain on `main`,
+   - exactly one intent comment with valid `INTENT_JSON` payload is required.
+8. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
+9. Manager-channel lines are size-limited and sanitized before display/logging.
+10. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.
+11. Merge finalization comments/closures must be idempotent and replay-safe across restart.
 
 Repair is bounded by `max_repair_attempts`. Exceeding bound causes hard failure to avoid infinite loops.
 
@@ -463,6 +484,16 @@ Schema (v2):
   "mode": "managed_pr",
   "active_issue": 0,
   "pending_task_id": "",
+  "bootstrap_intent": {
+    "task_ref": "Task 7.2a",
+    "summary": "Intent-only planning handshake before execution",
+    "branch_slug": "intent-handshake",
+    "branch_name": "agent/20260308-120000-intent-handshake",
+    "pr_title": "feat(app): stage bootstrap through intent handshake",
+    "pr_body": "Adds read-only intent gate before execution",
+    "checks": ["GOCACHE=/tmp/go-build go test ./..."],
+    "approved_at": "2026-03-08T12:03:39Z"
+  },
   "issue_links": [
     {
       "pr_number": 123,
@@ -518,6 +549,7 @@ Schema (v2):
 Notes:
 
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
+- `bootstrap_intent` persists approved staged-bootstrap intent between the read-only intent turn and the execution turn.
 - `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
 - `in_flight_attempt` records crash-safe per-attempt execution context before/after each Codex invocation (expected branch, mode, attempt index, prompt hash, pre/post head, error state).
 - `last_recovery` records the latest startup recovery action taken from persisted journal context.

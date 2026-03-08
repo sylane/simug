@@ -33,6 +33,16 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 		Mode:          ModeManagedPR,
 		ActiveIssue:   0,
 		PendingTaskID: "",
+		BootstrapIntent: &BootstrapIntent{
+			TaskRef:    "Task 7.2a",
+			Summary:    "stage bootstrap through validated intent",
+			BranchSlug: "intent-handshake",
+			BranchName: "agent/20260307-120000-intent-handshake",
+			PRTitle:    "task(7.2a): add bootstrap intent handshake",
+			PRBody:     "Introduce a staged intent flow before execution.",
+			Checks:     []string{"GOCACHE=/tmp/go-build go test ./..."},
+			ApprovedAt: time.Now().UTC().Truncate(time.Second),
+		},
 		IssueLinks: []IssueLink{
 			{
 				PRNumber:       42,
@@ -106,14 +116,60 @@ func TestNormalizeInfersManagedPRModeAndClearsIssueFields(t *testing.T) {
 		Mode:          ModeIssueTriage,
 		ActiveIssue:   99,
 		PendingTaskID: "task-5.9",
+		BootstrapIntent: &BootstrapIntent{
+			TaskRef:    "Task 7.2a",
+			Summary:    "x",
+			BranchSlug: "intent",
+			BranchName: "agent/20260307-120000-intent",
+			PRTitle:    "title",
+			PRBody:     "body",
+		},
 	}
 
 	st.Normalize()
 	if st.Mode != ModeManagedPR {
 		t.Fatalf("mode=%q, want %q", st.Mode, ModeManagedPR)
 	}
-	if st.ActiveIssue != 0 || st.PendingTaskID != "" {
-		t.Fatalf("expected managed mode to clear issue metadata, got issue=%d task=%q", st.ActiveIssue, st.PendingTaskID)
+	if st.ActiveIssue != 0 || st.PendingTaskID != "" || st.BootstrapIntent != nil {
+		t.Fatalf("expected managed mode to clear issue metadata/intent, got issue=%d task=%q intent=%#v", st.ActiveIssue, st.PendingTaskID, st.BootstrapIntent)
+	}
+}
+
+func TestNormalizeClearsBootstrapIntentInIssueTriage(t *testing.T) {
+	st := &State{
+		Mode: ModeIssueTriage,
+		BootstrapIntent: &BootstrapIntent{
+			TaskRef:    "Task 7.2a",
+			Summary:    "x",
+			BranchSlug: "intent",
+			BranchName: "agent/20260307-120000-intent",
+			PRTitle:    "title",
+			PRBody:     "body",
+		},
+	}
+
+	st.Normalize()
+	if st.BootstrapIntent != nil {
+		t.Fatalf("expected issue triage mode to clear bootstrap intent, got %#v", st.BootstrapIntent)
+	}
+}
+
+func TestNormalizeDropsInvalidBootstrapIntent(t *testing.T) {
+	st := &State{
+		Mode: ModeTaskBootstrap,
+		BootstrapIntent: &BootstrapIntent{
+			TaskRef:    "Task 7.2a",
+			Summary:    "",
+			BranchSlug: "intent",
+			BranchName: "agent/20260307-120000-intent",
+			PRTitle:    "title",
+			PRBody:     "body",
+		},
+	}
+
+	st.Normalize()
+	if st.BootstrapIntent != nil {
+		t.Fatalf("expected invalid bootstrap intent to be dropped, got %#v", st.BootstrapIntent)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"simug/internal/git"
 	"simug/internal/github"
+	"simug/internal/state"
 )
 
 func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
@@ -45,45 +46,75 @@ func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrapPromptContainsProtocolContract(t *testing.T) {
+func TestBuildBootstrapIntentPromptContainsProtocolContract(t *testing.T) {
 	o := orchestrator{
 		cfg: config{
 			MainBranch: "main",
 		},
 	}
 
-	expectedBranch := "agent/20260307-120000-next-task"
-	prompt := o.buildBootstrapPrompt(expectedBranch, "", "")
+	prompt := o.buildBootstrapIntentPrompt("", "")
 	required := []string{
-		fmt.Sprintf("Create and use branch EXACTLY named: %s", expectedBranch),
-		"Do NOT push. Do NOT create PR.",
-		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
+		"This turn is INTENT-ONLY planning; do not modify files.",
+		"Do NOT edit files. Do NOT commit. Do NOT push. Do NOT create PR.",
+		"Intent comment body must start with INTENT_JSON:",
 		"Use SIMUG_MANAGER: for manager-facing human text; unprefixed text is quarantined.",
 		"Exactly one terminal action (done or idle) is required.",
 		"SIMUG_MANAGER: <human-friendly manager message>",
-		`SIMUG: {"action":"comment","body":"..."}`,
-		`SIMUG: {"action":"issue_update","issue_number":123,"relation":"relates","comment":"This task has direct impact on this issue because ..."}`,
-		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}`,
+		`SIMUG: {"action":"comment","body":"INTENT_JSON:{\"task_ref\":\"Task 7.2a\",\"summary\":\"...\",\"branch_slug\":\"intent-handshake\",\"pr_title\":\"...\",\"pr_body\":\"...\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}`,
+		`SIMUG: {"action":"done","summary":"intent prepared","changes":false}`,
 		`SIMUG: {"action":"idle","reason":"no task available"}`,
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
-			t.Fatalf("missing %q in bootstrap prompt:\n%s", needle, prompt)
+			t.Fatalf("missing %q in bootstrap intent prompt:\n%s", needle, prompt)
 		}
 	}
 }
 
-func TestBuildBootstrapPromptIncludesPendingTaskTarget(t *testing.T) {
+func TestBuildBootstrapIntentPromptIncludesPendingTaskTarget(t *testing.T) {
 	o := orchestrator{
 		cfg: config{
 			MainBranch: "main",
 		},
 	}
 
-	expectedBranch := "agent/20260307-120000-next-task"
-	prompt := o.buildBootstrapPrompt(expectedBranch, "5.4a", "")
-	if !strings.Contains(prompt, "Start specifically with Task 5.4a from docs/PLANNING.md before any other pending task.") {
-		t.Fatalf("missing pending task targeting instruction in bootstrap prompt:\n%s", prompt)
+	prompt := o.buildBootstrapIntentPrompt("5.4a", "")
+	if !strings.Contains(prompt, "Prioritize pending issue-derived task context: Task 5.4a.") {
+		t.Fatalf("missing pending task targeting instruction in bootstrap intent prompt:\n%s", prompt)
+	}
+}
+
+func TestBuildBootstrapExecutionPromptContainsApprovedIntent(t *testing.T) {
+	o := orchestrator{
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+
+	intent := state.BootstrapIntent{
+		TaskRef:    "Task 7.2a",
+		Summary:    "introduce staged intent flow",
+		BranchSlug: "intent-handshake",
+		BranchName: "agent/20260308-120000-intent-handshake",
+		PRTitle:    "feat(app): stage bootstrap through intent handshake",
+		PRBody:     "Adds read-only planning intent before execution.",
+		Checks:     []string{"GOCACHE=/tmp/go-build go test ./..."},
+	}
+
+	prompt := o.buildBootstrapPrompt(intent, "")
+	required := []string{
+		fmt.Sprintf("Create and use branch EXACTLY named: %s", intent.BranchName),
+		fmt.Sprintf("Approved task reference: %s", intent.TaskRef),
+		fmt.Sprintf("Approved branch slug: %s", intent.BranchSlug),
+		"Do NOT push. Do NOT create PR.",
+		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
+		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}`,
+	}
+	for _, needle := range required {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("missing %q in bootstrap execution prompt:\n%s", needle, prompt)
+		}
 	}
 }
 

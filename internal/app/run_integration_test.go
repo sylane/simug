@@ -1772,7 +1772,7 @@ func TestRunMergeFinalizationFailsWhenCloseIssueFails(t *testing.T) {
 
 func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Task 5.4a"; then printf 'SIMUG: {"action":"idle","reason":"pending-task bootstrap targeted"}\n'; else printf 'SIMUG: {"action":"done","summary":"missing pending task target","changes":false}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Prioritize pending issue-derived task context: Task 5.4a."; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 5.4a\\\",\\\"summary\\\":\\\"bootstrap pending task\\\",\\\"branch_slug\\\":\\\"task-5-4a\\\",\\\"pr_title\\\":\\\"feat: task 5.4a\\\",\\\"pr_body\\\":\\\"Implements Task 5.4a\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"missing pending task target"}\n'; fi`)
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -1806,11 +1806,8 @@ func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 	restoreGitHub := github.SetCommandRunnerForTest(runner)
 	defer restoreGitHub()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	if err := Run(ctx, tmp); err != nil {
-		t.Fatalf("Run returned error: %v", err)
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
 	}
 
 	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
@@ -1818,23 +1815,40 @@ func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 		t.Fatalf("read state file: %v", err)
 	}
 	var st struct {
-		Mode          string `json:"mode"`
-		PendingTaskID string `json:"pending_task_id"`
+		Mode            string `json:"mode"`
+		PendingTaskID   string `json:"pending_task_id"`
+		BootstrapIntent *struct {
+			TaskRef    string `json:"task_ref"`
+			BranchSlug string `json:"branch_slug"`
+			BranchName string `json:"branch_name"`
+		} `json:"bootstrap_intent"`
 	}
 	if err := json.Unmarshal(stateData, &st); err != nil {
 		t.Fatalf("decode state file: %v", err)
 	}
-	if st.Mode != "issue_triage" {
-		t.Fatalf("mode=%q, want issue_triage", st.Mode)
+	if st.Mode != "task_bootstrap" {
+		t.Fatalf("mode=%q, want task_bootstrap", st.Mode)
 	}
 	if st.PendingTaskID != "5.4a" {
 		t.Fatalf("pending_task_id=%q, want 5.4a", st.PendingTaskID)
+	}
+	if st.BootstrapIntent == nil {
+		t.Fatalf("bootstrap_intent=nil, want persisted intent")
+	}
+	if st.BootstrapIntent.TaskRef != "Task 5.4a" {
+		t.Fatalf("task_ref=%q, want Task 5.4a", st.BootstrapIntent.TaskRef)
+	}
+	if st.BootstrapIntent.BranchSlug != "task-5-4a" {
+		t.Fatalf("branch_slug=%q, want task-5-4a", st.BootstrapIntent.BranchSlug)
+	}
+	if !strings.HasPrefix(st.BootstrapIntent.BranchName, "agent/") {
+		t.Fatalf("branch_name=%q, want agent/*", st.BootstrapIntent.BranchName)
 	}
 }
 
 func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; elif printf '%s' "$input" | grep -q "INTENT-ONLY planning"; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 7.2a\\\",\\\"summary\\\":\\\"bootstrap after triage\\\",\\\"branch_slug\\\":\\\"bootstrap-after-triage\\\",\\\"pr_title\\\":\\\"feat: bootstrap after triage\\\",\\\"pr_body\\\":\\\"Implements planned task\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
 
 	tmp := t.TempDir()
 	report := agent.Action{
@@ -1870,11 +1884,8 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	restoreGitHub := github.SetCommandRunnerForTest(runner)
 	defer restoreGitHub()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	if err := Run(ctx, tmp); err != nil {
-		t.Fatalf("Run returned error: %v", err)
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
 	}
 
 	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
@@ -1882,21 +1893,27 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 		t.Fatalf("read state file: %v", err)
 	}
 	var st struct {
-		Mode          string `json:"mode"`
-		ActiveIssue   int    `json:"active_issue"`
-		PendingTaskID string `json:"pending_task_id"`
+		Mode            string `json:"mode"`
+		ActiveIssue     int    `json:"active_issue"`
+		PendingTaskID   string `json:"pending_task_id"`
+		BootstrapIntent *struct {
+			TaskRef string `json:"task_ref"`
+		} `json:"bootstrap_intent"`
 	}
 	if err := json.Unmarshal(stateData, &st); err != nil {
 		t.Fatalf("decode state file: %v", err)
 	}
-	if st.Mode != "issue_triage" {
-		t.Fatalf("mode=%q, want issue_triage", st.Mode)
+	if st.Mode != "task_bootstrap" {
+		t.Fatalf("mode=%q, want task_bootstrap", st.Mode)
 	}
 	if st.ActiveIssue != 4 {
 		t.Fatalf("active_issue=%d, want 4", st.ActiveIssue)
 	}
 	if st.PendingTaskID != "" {
 		t.Fatalf("pending_task_id=%q, want empty", st.PendingTaskID)
+	}
+	if st.BootstrapIntent == nil {
+		t.Fatalf("bootstrap_intent=nil, want persisted intent")
 	}
 }
 

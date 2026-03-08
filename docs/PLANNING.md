@@ -19,21 +19,27 @@ When phase ordering conflicts with design alignment, execute tasks in this order
 
 1. Task 7.1 (remove orchestrator direct project-file mutation paths)
 2. Task 7.2 (Codex-mediated issue-task intake instead of planner insertion)
-3. Task 7.3 (optional bootstrap context; no hard-required docs format)
-4. Task 5.9 (issue linkage protocol in implementation turns)
-5. Task 5.10 (PR-scoped tracked issue ledger)
-6. Task 5.12 (close-on-merge issue finalization)
-7. Task 5.11 (development-time issue impact/fix comments)
-8. Task 5.13 (full lifecycle integration + adversarial tests)
-9. Task 6.5a (real Codex protocol conformance canary)
-10. Task 6.5b (real Codex repair/restart interaction canary)
-11. Task 6.5c (real Codex validation gate integration)
-12. Task 6.10a (Codex command auto-detection + non-interactive defaults)
-13. Task 6.10b (Codex runtime preflight diagnostics)
-14. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
-15. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
-16. Task 6.10e (runbook docs relocation to docs/runbooks/)
-17. Task 6.3+ (remaining self-hosting continuation)
+3. Task 7.2a (intent-only planning handshake before execution)
+4. Task 7.2b (execution scope lock and repair containment)
+5. Task 7.2c (protocol parser hardening against prompt/template echoes)
+6. Task 7.2d (post-execution report gate before push/PR creation)
+7. Task 7.2e (attempt-level observability + forensic artifacts)
+8. Task 7.2f (same-session continuity for staged intent/execute/repair turns)
+9. Task 7.3 (optional bootstrap context; no hard-required docs format)
+10. Task 5.9 (issue linkage protocol in implementation turns)
+11. Task 5.10 (PR-scoped tracked issue ledger)
+12. Task 5.12 (close-on-merge issue finalization)
+13. Task 5.11 (development-time issue impact/fix comments)
+14. Task 5.13 (full lifecycle integration + adversarial tests)
+15. Task 6.5a (real Codex protocol conformance canary)
+16. Task 6.5b (real Codex repair/restart interaction canary)
+17. Task 6.5c (real Codex validation gate integration)
+18. Task 6.10a (Codex command auto-detection + non-interactive defaults)
+19. Task 6.10b (Codex runtime preflight diagnostics)
+20. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
+21. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
+22. Task 6.10e (runbook docs relocation to docs/runbooks/)
+23. Task 6.3+ (remaining self-hosting continuation)
 
 Rationale:
 - Design requires orchestrator/project ownership boundary first.
@@ -280,6 +286,30 @@ Execution note:
   - Scope: change issue-triage flow so `issue_report.needs_task=true` produces coordinator intent and bootstrap instructions, not markdown parsing/insertion by simug.
   - Done when: issue-derived work can proceed end-to-end without simug parsing or editing planning files, and `docs/DESIGN.md`/`docs/WORKFLOW.md` describe the finalized Codex-mediated flow.
   - Refinement: `Task 7.1` removed runtime planning insertion and now logs issue-task intent without `pending_task_id` assignment; define explicit bootstrap handoff fields and backlink/task-context semantics for issue-derived work.
+
+- [x] **Task 7.2a: Intent-only planning handshake before execution**
+  - Scope: split bootstrap into a read-only `intent` turn where Codex proposes task scope/branch slug/PR draft/check plan without editing files; orchestrator validates and persists approved intent before any write-enabled execution turn.
+  - Done when: intent turn is machine-validated, leaves clean tree unchanged, and execution turn cannot start without an approved persisted intent.
+
+- [ ] **Task 7.2b: Execution scope lock and repair containment**
+  - Scope: bind execution/repair prompts to the approved intent and reject drift (task switching, unrelated planning edits, extra `[IN_PROGRESS]` mutations) during repair loops.
+  - Done when: protocol/invariant repair attempts are constrained to the same approved task scope and cannot silently advance to a different task.
+
+- [ ] **Task 7.2c: Protocol parser hardening against prompt/template echoes**
+  - Scope: harden protocol ingestion so template/example `SIMUG:` lines echoed from prompts/transcripts are ignored, and only canonical agent-emitted actions contribute to terminal-action cardinality checks.
+  - Done when: known repros with echoed protocol examples no longer cause false multi-terminal failures.
+
+- [ ] **Task 7.2d: Post-execution report gate before push/PR creation**
+  - Scope: require a structured terminal report (summary + commit evidence + branch identity) and validate commit movement before orchestrator push/PR creation.
+  - Done when: orchestrator never attempts PR creation without validated report payload and verified commit advancement.
+
+- [ ] **Task 7.2e: Attempt-level observability and forensic artifacts**
+  - Scope: persist parsed protocol excerpts, terminal-detection diagnostics, and rollout/session references in per-attempt archives and `explain-last-failure` output.
+  - Done when: every failed attempt has actionable non-empty forensic artifacts explaining why validation failed.
+
+- [ ] **Task 7.2f: Same-session continuity for staged turns**
+  - Scope: ensure staged `intent -> execute -> repair` turns run on the same Codex session/thread identity with restart-safe persistence in worker state.
+  - Done when: state/events prove session continuity across staged turns and restart recovery resumes the same session when available.
 
 - [ ] **Task 7.3: Bootstrap context abstraction (no hard-required docs format)**
   - Scope: make prompt bootstrap context optional/discoverable and configurable per repo, with no hard dependency on `docs/WORKFLOW.md` or `docs/PLANNING.md` existence/format.
