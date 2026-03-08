@@ -233,12 +233,12 @@ Execution note:
   - Scope: validate issue-first intake plus polling/replies/push/PR transitions end-to-end with real GitHub API and real Codex runtime, using 6.5c validation gate artifacts as prerequisite evidence.
   - Done when: at least one issue-driven and one planning-driven PR lifecycle complete without manual state repair.
 
-- [ ] **Task 6.7: End-to-end self-hosting canary workflow**
+- [x] **Task 6.7: End-to-end self-hosting canary workflow**
   - Scope: scripted canary that runs simug on simug with trace capture and verifies PR/session continuity across at least one restart, reusing sandbox/gate evidence flows.
   - Done when: self-hosted dogfood loop passes reproducibly.
 
 - [ ] **Task 6.8: Self-hosting go/no-go checklist and runbook**
-  - Scope: define explicit gates for enabling simug-as-default for simug development (required tasks/tests/log artifacts, rollback procedure, operator commands including failure diagnosis flow such as `simug explain-last-failure`).
+  - Scope: define explicit gates for enabling simug-as-default for simug development (required tasks/tests/log artifacts including self-host canary + real-Codex gate outputs, rollback procedure, operator commands including failure diagnosis flow such as `simug explain-last-failure`).
   - Done when: team has a concrete and auditable criterion for switching from direct/manual development to self-host default.
 
 - [ ] **Task 6.9: Stop/restart chaos validation**

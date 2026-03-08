@@ -238,6 +238,12 @@ For simug-on-simug development, use the wrapper script:
 scripts/self-host-loop.sh --iterations 5
 ```
 
+For restart-boundary self-host canary validation:
+
+```bash
+scripts/self-host-canary.sh --repo . --iterations 4
+```
+
 ## Real Codex Protocol Canary
 
 To validate protocol behavior against a real Codex runtime (not shell fixtures):

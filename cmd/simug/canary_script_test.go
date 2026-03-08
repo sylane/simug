@@ -91,3 +91,24 @@ func TestSandboxDryRunScriptContract(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfHostCanaryScriptContract(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "self-host-canary.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read self-host canary script: %v", err)
+	}
+	content := string(data)
+
+	required := []string{
+		"self-host-loop.sh",
+		"phase1.log",
+		"phase2.log",
+		"summary.json",
+	}
+	for _, needle := range required {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("missing %q in self-host canary script", needle)
+		}
+	}
+}
