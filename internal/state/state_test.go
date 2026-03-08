@@ -112,10 +112,11 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 
 func TestNormalizeInfersManagedPRModeAndClearsIssueFields(t *testing.T) {
 	st := &State{
-		ActivePR:      7,
-		Mode:          ModeIssueTriage,
-		ActiveIssue:   99,
-		PendingTaskID: "task-5.9",
+		ActivePR:           7,
+		Mode:               ModeIssueTriage,
+		ActiveIssue:        99,
+		PendingTaskID:      "task-5.9",
+		BootstrapSessionID: "session-123",
 		BootstrapIntent: &BootstrapIntent{
 			TaskRef:    "Task 7.2a",
 			Summary:    "x",
@@ -130,14 +131,15 @@ func TestNormalizeInfersManagedPRModeAndClearsIssueFields(t *testing.T) {
 	if st.Mode != ModeManagedPR {
 		t.Fatalf("mode=%q, want %q", st.Mode, ModeManagedPR)
 	}
-	if st.ActiveIssue != 0 || st.PendingTaskID != "" || st.BootstrapIntent != nil {
-		t.Fatalf("expected managed mode to clear issue metadata/intent, got issue=%d task=%q intent=%#v", st.ActiveIssue, st.PendingTaskID, st.BootstrapIntent)
+	if st.ActiveIssue != 0 || st.PendingTaskID != "" || st.BootstrapIntent != nil || st.BootstrapSessionID != "" {
+		t.Fatalf("expected managed mode to clear issue metadata/intent/session, got issue=%d task=%q intent=%#v session=%q", st.ActiveIssue, st.PendingTaskID, st.BootstrapIntent, st.BootstrapSessionID)
 	}
 }
 
 func TestNormalizeClearsBootstrapIntentInIssueTriage(t *testing.T) {
 	st := &State{
-		Mode: ModeIssueTriage,
+		Mode:               ModeIssueTriage,
+		BootstrapSessionID: "session-123",
 		BootstrapIntent: &BootstrapIntent{
 			TaskRef:    "Task 7.2a",
 			Summary:    "x",
@@ -152,11 +154,15 @@ func TestNormalizeClearsBootstrapIntentInIssueTriage(t *testing.T) {
 	if st.BootstrapIntent != nil {
 		t.Fatalf("expected issue triage mode to clear bootstrap intent, got %#v", st.BootstrapIntent)
 	}
+	if st.BootstrapSessionID != "" {
+		t.Fatalf("expected issue triage mode to clear bootstrap session id, got %q", st.BootstrapSessionID)
+	}
 }
 
 func TestNormalizeDropsInvalidBootstrapIntent(t *testing.T) {
 	st := &State{
-		Mode: ModeTaskBootstrap,
+		Mode:               ModeTaskBootstrap,
+		BootstrapSessionID: "session-123",
 		BootstrapIntent: &BootstrapIntent{
 			TaskRef:    "Task 7.2a",
 			Summary:    "",
@@ -170,6 +176,29 @@ func TestNormalizeDropsInvalidBootstrapIntent(t *testing.T) {
 	st.Normalize()
 	if st.BootstrapIntent != nil {
 		t.Fatalf("expected invalid bootstrap intent to be dropped, got %#v", st.BootstrapIntent)
+	}
+	if st.BootstrapSessionID != "" {
+		t.Fatalf("expected invalid bootstrap intent to clear bootstrap session id, got %q", st.BootstrapSessionID)
+	}
+}
+
+func TestNormalizeKeepsBootstrapSessionIDWhenTaskBootstrapHasIntent(t *testing.T) {
+	st := &State{
+		Mode:               ModeTaskBootstrap,
+		BootstrapSessionID: "session-123",
+		BootstrapIntent: &BootstrapIntent{
+			TaskRef:    "Task 7.2a",
+			Summary:    "x",
+			BranchSlug: "intent",
+			BranchName: "agent/20260307-120000-intent",
+			PRTitle:    "title",
+			PRBody:     "body",
+		},
+	}
+
+	st.Normalize()
+	if st.BootstrapSessionID != "session-123" {
+		t.Fatalf("expected bootstrap session id to be preserved, got %q", st.BootstrapSessionID)
 	}
 }
 

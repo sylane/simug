@@ -38,6 +38,7 @@ const (
 var bootstrapIntentSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,40}$`)
 var taskRefIDPattern = regexp.MustCompile(`(?i)\btask\s+([0-9]+\.[0-9]+[a-z]?)\b`)
 var planningTaskStatusPattern = regexp.MustCompile(`^- \[( |x)\] \*\*(?:\[IN_PROGRESS\] )?Task ([0-9]+\.[0-9]+[a-z]?):`)
+var codexSessionIDPattern = regexp.MustCompile(`^[0-9a-fA-F-]{8,}$`)
 
 type config struct {
 	PollInterval      time.Duration
@@ -269,6 +270,7 @@ func (o *orchestrator) tick(ctx context.Context) error {
 		o.state.Mode = state.ModeManagedPR
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
+		o.state.BootstrapSessionID = ""
 		return o.handleManagedPR(ctx, pr.Number)
 	}
 
@@ -287,9 +289,11 @@ func (o *orchestrator) tick(ctx context.Context) error {
 			"to":   string(state.ModeIssueTriage),
 		})
 		o.state.Mode = state.ModeIssueTriage
+		o.state.BootstrapSessionID = ""
 	}
 	if o.state.Mode == "" {
 		o.state.Mode = state.ModeIssueTriage
+		o.state.BootstrapSessionID = ""
 	}
 	return o.handleNoOpenPR(ctx)
 }
@@ -349,7 +353,7 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	}
 
 	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, func(result agent.Result, _, _ string) error {
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, "", func(result agent.Result, _, _ string) error {
 		return validateIssueUpdateActions(result.Actions)
 	})
 	if err != nil {
@@ -501,6 +505,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		})
 		o.state.Mode = state.ModeIssueTriage
 		o.state.BootstrapIntent = nil
+		o.state.BootstrapSessionID = ""
 	}
 
 	if err := o.ensureMainReady(ctx); err != nil {
@@ -524,6 +529,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
 		o.state.BootstrapIntent = nil
+		o.state.BootstrapSessionID = ""
 		var selected *github.Issue
 		if len(issues) > 0 {
 			selected = &issues[0]
@@ -546,7 +552,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 			var report agent.Action
 			prompt := o.buildIssueTriagePrompt(*selected, "")
-			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result, _, _ string) error {
+			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, "", func(result agent.Result, _, _ string) error {
 				r, validateErr := validateIssueTriageResult(result, selected.Number)
 				if validateErr != nil {
 					return validateErr
@@ -598,7 +604,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 		var approved state.BootstrapIntent
 		intentPrompt := o.buildBootstrapIntentPrompt(o.state.PendingTaskID, "")
-		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result, _, _ string) error {
+		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, o.state.BootstrapSessionID, func(result agent.Result, _, _ string) error {
 			intent, validateErr := o.validateBootstrapIntentResult(result, o.state.PendingTaskID)
 			if validateErr != nil {
 				return validateErr
@@ -618,6 +624,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			o.state.ActiveIssue = 0
 			o.state.PendingTaskID = ""
 			o.state.BootstrapIntent = nil
+			o.state.BootstrapSessionID = ""
 			o.state.Mode = state.ModeIssueTriage
 			return nil
 		}
@@ -626,6 +633,13 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		}
 
 		o.state.BootstrapIntent = &approved
+		if observedSessionID := extractCodexSessionIDFromRawOutput(intentResult.RawOutput); observedSessionID != "" {
+			o.state.BootstrapSessionID = observedSessionID
+			o.logEvent("bootstrap_session", "captured codex session id during intent turn", map[string]any{
+				"session_id": observedSessionID,
+				"task_ref":   approved.TaskRef,
+			})
+		}
 		o.logEvent("bootstrap_intent", "approved bootstrap intent before execution", map[string]any{
 			"task_ref":    approved.TaskRef,
 			"summary":     limitString(approved.Summary, 500),
@@ -652,7 +666,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	prompt := o.buildBootstrapPrompt(intent, "")
 	var report executionReport
 	var actionsForApply []agent.Action
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, func(result agent.Result, before, after string) error {
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, o.state.BootstrapSessionID, func(result agent.Result, before, after string) error {
 		if err := validateIssueUpdateActions(result.Actions); err != nil {
 			return err
 		}
@@ -673,6 +687,11 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	if actionsForApply != nil {
 		result.Actions = actionsForApply
 	}
+	if expectedSessionID := strings.TrimSpace(o.state.BootstrapSessionID); expectedSessionID != "" {
+		if observedSessionID := extractCodexSessionIDFromRawOutput(result.RawOutput); observedSessionID != "" && observedSessionID != expectedSessionID {
+			return fmt.Errorf("bootstrap session continuity violation: expected session %q, observed %q", expectedSessionID, observedSessionID)
+		}
+	}
 
 	if result.Terminal.Type == agent.ActionIdle {
 		fmt.Printf("status: agent idle: %s\n", strings.TrimSpace(result.Terminal.Reason))
@@ -682,6 +701,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
 		o.state.BootstrapIntent = nil
+		o.state.BootstrapSessionID = ""
 		o.state.Mode = state.ModeIssueTriage
 		return nil
 	}
@@ -727,6 +747,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	o.state.ActiveIssue = 0
 	o.state.PendingTaskID = ""
 	o.state.BootstrapIntent = nil
+	o.state.BootstrapSessionID = ""
 	fmt.Printf("status: created managed PR #%d (%s)\n", prNumber, expectedBranch)
 	o.logEvent("pr_created", "managed pull request created", map[string]any{"pr": prNumber, "branch": expectedBranch})
 
@@ -741,7 +762,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	return nil
 }
 
-func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, validateResult func(agent.Result, string, string) error) (agent.Result, string, error) {
+func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, sessionID string, validateResult func(agent.Result, string, string) error) (agent.Result, string, error) {
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, expectedBranch, beforeHead, currentPrompt); err != nil {
@@ -756,9 +777,19 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 			"expected_branch":     expectedBranch,
 			"require_commit_done": requireCommitForDone,
 			"allow_idle_on_main":  allowIdleOnMain,
+			"session_id":          strings.TrimSpace(sessionID),
 		})
 
-		result, err := o.runner.Run(ctx, currentPrompt)
+		runner := o.runner
+		if strings.TrimSpace(sessionID) != "" {
+			resumeCommand, err := buildSessionResumeCommand(runner.Command, sessionID)
+			if err != nil {
+				return agent.Result{}, "", err
+			}
+			runner.Command = resumeCommand
+		}
+
+		result, err := runner.Run(ctx, currentPrompt)
 		if err != nil {
 			rawOutput := agent.RawOutputFromError(err)
 			diagnostics := buildAttemptArchiveDiagnostics(rawOutput, nil, err, nil)
@@ -2226,6 +2257,37 @@ func extractCodexPathReferences(rawOutput string) ([]string, []string) {
 		}
 	}
 	return sortedKeys(rolloutSet), sortedKeys(sessionSet)
+}
+
+func extractCodexSessionIDFromRawOutput(rawOutput string) string {
+	_, sessionRefs := extractCodexPathReferences(rawOutput)
+	for _, ref := range sessionRefs {
+		parts := strings.Split(ref, "/")
+		for i := 0; i < len(parts)-1; i++ {
+			if parts[i] != "sessions" {
+				continue
+			}
+			candidate := strings.TrimSpace(parts[i+1])
+			if codexSessionIDPattern.MatchString(candidate) {
+				return candidate
+			}
+		}
+	}
+	return ""
+}
+
+func buildSessionResumeCommand(baseCommand, sessionID string) (string, error) {
+	base := strings.TrimSpace(baseCommand)
+	if strings.TrimSpace(sessionID) == "" {
+		return base, nil
+	}
+	if !codexSessionIDPattern.MatchString(strings.TrimSpace(sessionID)) {
+		return "", fmt.Errorf("invalid codex session id %q", sessionID)
+	}
+	if base == "codex exec" {
+		return fmt.Sprintf("codex exec resume %s -", strings.TrimSpace(sessionID)), nil
+	}
+	return "", fmt.Errorf("session continuity requested but agent command %q does not support automatic resume", base)
 }
 
 func loadConfig() (config, error) {

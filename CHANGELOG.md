@@ -60,6 +60,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added execution-report validation and prompt-contract tests, plus action filtering so internal report comments are not posted to created PRs.
 - Added enriched attempt archive metadata with protocol action counts/types/excerpts, terminal diagnostics, parser hints, and detected rollout/session path references.
 - Added diagnostics coverage for archive metadata enrichment and updated failure explainer output to surface protocol and rollout/session forensic context.
+- Added staged bootstrap session continuity support with persisted `bootstrap_session_id` state and codex resume command selection (`codex exec resume <id> -`) when available.
+- Added session continuity helpers/tests for resume command construction, session-id extraction from artifacts, and bootstrap-session state normalization semantics.
 
 ### Changed
 

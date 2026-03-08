@@ -307,7 +307,7 @@ Execution note:
   - Scope: persist parsed protocol excerpts, terminal-detection diagnostics, and rollout/session references in per-attempt archives and `explain-last-failure` output.
   - Done when: every failed attempt has actionable non-empty forensic artifacts explaining why validation failed.
 
-- [ ] **Task 7.2f: Same-session continuity for staged turns**
+- [x] **Task 7.2f: Same-session continuity for staged turns**
   - Scope: ensure staged `intent -> execute -> repair` turns run on the same Codex session/thread identity with restart-safe persistence in worker state.
   - Done when: state/events prove session continuity across staged turns and restart recovery resumes the same session when available.
 

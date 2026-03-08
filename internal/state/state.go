@@ -27,6 +27,7 @@ type State struct {
 	ActiveIssue         int              `json:"active_issue"`
 	PendingTaskID       string           `json:"pending_task_id"`
 	BootstrapIntent     *BootstrapIntent `json:"bootstrap_intent,omitempty"`
+	BootstrapSessionID  string           `json:"bootstrap_session_id,omitempty"`
 	IssueLinks          []IssueLink      `json:"issue_links,omitempty"`
 	InFlightAttempt     *Attempt         `json:"in_flight_attempt,omitempty"`
 	LastRecovery        *Recovery        `json:"last_recovery,omitempty"`
@@ -170,10 +171,16 @@ func (s *State) Normalize() {
 		s.ActiveIssue = 0
 		s.PendingTaskID = ""
 		s.BootstrapIntent = nil
+		s.BootstrapSessionID = ""
 	}
 
 	if s.Mode == ModeIssueTriage && s.ActivePR == 0 {
 		s.BootstrapIntent = nil
+		s.BootstrapSessionID = ""
+	}
+
+	if s.Mode == ModeTaskBootstrap && s.BootstrapIntent == nil {
+		s.BootstrapSessionID = ""
 	}
 
 	if s.BootstrapIntent != nil {
@@ -186,6 +193,9 @@ func (s *State) Normalize() {
 			strings.TrimSpace(intent.PRBody) == "" {
 			s.BootstrapIntent = nil
 		}
+	}
+	if s.Mode == ModeTaskBootstrap && s.BootstrapIntent == nil {
+		s.BootstrapSessionID = ""
 	}
 
 	if len(s.IssueLinks) > 0 {

@@ -33,7 +33,6 @@ The objective is implementable with the current architecture:
 Current implementation still has known gaps relative to target design:
 
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Same-session continuity across staged bootstrap turns is still pending (tracked in planning).
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -57,6 +56,7 @@ These invariants are enforced on every loop iteration.
 14. Repository instruction documents (for example `AGENTS.md`) are optional Codex context inputs only, not orchestration control inputs.
 15. `task_bootstrap` execution runs are allowed only after a previously approved, persisted bootstrap intent.
 16. During locked `task_bootstrap` execution, planning status drift outside the approved task is rejected (including foreign/extra `[IN_PROGRESS]` transitions).
+17. When a staged bootstrap session id is available, execution/repair turns must resume that same Codex session id.
 
 ## 3. Managed PR Definition
 
@@ -127,6 +127,7 @@ When no managed open PR exists:
    - no file edits/commits/branch switching,
    - protocol must emit exactly one intent `comment` (`INTENT_JSON:{...}`) plus terminal `done` (`changes=false`) or terminal `idle`.
 8. Validate and persist approved bootstrap intent (`task_ref`, `summary`, `branch_slug`, `pr_title`, `pr_body`, optional `checks`) in worker state as `bootstrap_intent`.
+9. Capture and persist staged bootstrap session identity (`bootstrap_session_id`) when available from Codex runtime artifacts.
 9. In `task_bootstrap` mode with approved intent, run execution turn:
    - Codex must execute the approved task scope,
    - Codex must create/use derived managed branch `agent/<timestamp>-<branch_slug>`,
@@ -136,7 +137,8 @@ When no managed open PR exists:
    - branch matches managed pattern,
    - at least one new commit exists for `done + changes=true`,
    - working tree is clean,
-   - structured execution report payload (`REPORT_JSON`) matches approved task/branch/post-run head.
+   - structured execution report payload (`REPORT_JSON`) matches approved task/branch/post-run head,
+   - observed session id (when emitted) matches persisted `bootstrap_session_id`.
 11. Orchestrator pushes branch and creates PR assigned to self.
 12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR and resulting work trace.
 13. Store new PR as active and begin monitoring.
@@ -253,8 +255,8 @@ This section defines the concrete simug <-> Codex interactions by use case.
 
 1. Simug runs intent-only bootstrap prompt when `bootstrap_intent` is empty.
 2. Intent turn requires no repository mutations and exactly one `INTENT_JSON` comment plus terminal action.
-3. Simug validates intent payload and persists approved `bootstrap_intent`, then exits tick without push/PR side effects.
-4. Next `task_bootstrap` tick runs execution prompt bound to approved intent (task scope + branch slug + PR draft metadata).
+3. Simug validates intent payload, persists approved `bootstrap_intent`, captures `bootstrap_session_id` when available, then exits tick without push/PR side effects.
+4. Next `task_bootstrap` tick runs execution prompt bound to approved intent (task scope + branch slug + PR draft metadata), resuming `bootstrap_session_id` when available.
 5. Simug validates terminal action + repo invariants:
    - expected branch policy for approved intent branch,
    - clean tree,
@@ -313,6 +315,7 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 
 - Codex is invoked as a subprocess command configured by env (`SIMUG_AGENT_CMD`).
 - When `SIMUG_AGENT_CMD` is unset, simug auto-detects command mode and prefers non-interactive `codex exec`, with compatibility fallback to `codex` when needed.
+- For staged bootstrap continuity with default `codex exec`, simug resumes turns with `codex exec resume <bootstrap_session_id> -` when a session id has been captured.
 - Simug does not provision Codex auth/config; it relies on environment-configured Codex runtime and reports execution/protocol failures with diagnostics.
 - For Codex commands, startup performs a preflight help probe and fails fast with actionable diagnostics for missing CLI, auth errors, or unwritable Codex runtime paths.
 - Orchestrator sends a structured prompt through stdin.
@@ -498,6 +501,7 @@ Schema (v2):
   "mode": "managed_pr",
   "active_issue": 0,
   "pending_task_id": "",
+  "bootstrap_session_id": "",
   "bootstrap_intent": {
     "task_ref": "Task 7.2a",
     "summary": "Intent-only planning handshake before execution",
@@ -564,6 +568,7 @@ Notes:
 
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
 - `bootstrap_intent` persists approved staged-bootstrap intent between the read-only intent turn and the execution turn.
+- `bootstrap_session_id` stores detected Codex session identity for staged bootstrap continuity; it is cleared when bootstrap context is cleared.
 - `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
 - `in_flight_attempt` records crash-safe per-attempt execution context before/after each Codex invocation (expected branch, mode, attempt index, prompt hash, pre/post head, error state).
 - `last_recovery` records the latest startup recovery action taken from persisted journal context.
