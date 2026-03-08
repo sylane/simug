@@ -56,6 +56,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added scope-lock repair prompt constraints and unit coverage for task-ref parsing, planning-status lock validation, and scope-constrained repair instructions.
 - Added protocol parser hardening to filter prompt-template `SIMUG:` action sequences when echoed alongside real agent output, preventing false multi-terminal failures.
 - Added agent parser tests covering template-echo filtering and runner-level mixed-output handling.
+- Added bootstrap execution report gate requiring exactly one `REPORT_JSON` comment with task/summary/branch/head evidence before push/PR creation.
+- Added execution-report validation and prompt-contract tests, plus action filtering so internal report comments are not posted to created PRs.
 
 ### Changed
 

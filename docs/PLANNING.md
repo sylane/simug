@@ -299,7 +299,7 @@ Execution note:
   - Scope: harden protocol ingestion so template/example `SIMUG:` lines echoed from prompts/transcripts are ignored, and only canonical agent-emitted actions contribute to terminal-action cardinality checks.
   - Done when: known repros with echoed protocol examples no longer cause false multi-terminal failures.
 
-- [ ] **Task 7.2d: Post-execution report gate before push/PR creation**
+- [x] **Task 7.2d: Post-execution report gate before push/PR creation**
   - Scope: require a structured terminal report (summary + commit evidence + branch identity) and validate commit movement before orchestrator push/PR creation.
   - Done when: orchestrator never attempts PR creation without validated report payload and verified commit advancement.
 

@@ -33,7 +33,7 @@ The objective is implementable with the current architecture:
 Current implementation still has known gaps relative to target design:
 
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Post-execution report gating and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
+- Attempt-level forensic enrichment and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -135,7 +135,8 @@ When no managed open PR exists:
 10. Validate Codex output:
    - branch matches managed pattern,
    - at least one new commit exists for `done + changes=true`,
-   - working tree is clean.
+   - working tree is clean,
+   - structured execution report payload (`REPORT_JSON`) matches approved task/branch/post-run head.
 11. Orchestrator pushes branch and creates PR assigned to self.
 12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR and resulting work trace.
 13. Store new PR as active and begin monitoring.
@@ -258,7 +259,8 @@ This section defines the concrete simug <-> Codex interactions by use case.
    - expected branch policy for approved intent branch,
    - clean tree,
    - `done + changes=true` requires new commit,
-   - planning status lock for non-target tasks (`[IN_PROGRESS]` cardinality + no foreign status drift).
+   - planning status lock for non-target tasks (`[IN_PROGRESS]` cardinality + no foreign status drift),
+   - exactly one valid `REPORT_JSON` execution report before push/PR creation.
 6. If valid, simug performs orchestrator-owned remote mutations:
    - push branch,
    - create PR,
@@ -359,6 +361,9 @@ Supported actions:
   - fields: `summary`, `changes` (bool), optional `pr_title`, optional `pr_body`
 - `idle`: terminal no-op action.
   - fields: `reason`
+- `REPORT_JSON` execution report (encoded in `comment.body` for bootstrap execution turns):
+  - `comment.body` prefix: `REPORT_JSON:`
+  - payload fields: `task_ref`, `summary`, `branch`, `head`, optional `checks`
 
 Rules:
 
@@ -391,7 +396,7 @@ This matrix defines how simug reacts to Codex protocol output by mode.
   - Execution stage (approved `bootstrap_intent` exists):
     - Allowed non-terminal actions: `comment`, `issue_update`.
     - Required terminal: exactly one `done` or `idle`.
-    - Orchestrator reaction: validate branch/commit/clean tree, planning scope lock, and issue-update payloads; push/create PR on valid `done + changes=true`; clear intent on completion/idle.
+    - Orchestrator reaction: validate branch/commit/clean tree, planning scope lock, issue-update payloads, and exactly one valid `REPORT_JSON` comment (for `done`); push/create PR on valid `done + changes=true`; clear intent on completion/idle.
 - Any mode with invalid action set or cardinality:
   - Orchestrator reaction: reject run, emit repair prompt, retry within bounded limit, then fail-closed.
 
@@ -415,7 +420,8 @@ After every Codex run:
 8. In `task_bootstrap` execution stage:
    - approved `task_ref` must include canonical `Task <id>` and remain scope lock target during retries,
    - status changes in `docs/PLANNING.md` for non-target tasks are rejected,
-   - at most one `[IN_PROGRESS]` task is allowed and it must be the locked task when present.
+   - at most one `[IN_PROGRESS]` task is allowed and it must be the locked task when present,
+   - `done` requires exactly one valid `REPORT_JSON` comment matching approved task, expected branch, and post-run head.
 9. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
 10. Manager-channel lines are size-limited and sanitized before display/logging.
 11. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.

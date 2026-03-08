@@ -108,8 +108,10 @@ func TestBuildBootstrapExecutionPromptContainsApprovedIntent(t *testing.T) {
 		fmt.Sprintf("Approved task reference: %s", intent.TaskRef),
 		fmt.Sprintf("Approved branch slug: %s", intent.BranchSlug),
 		"Scope lock: do not switch tasks;",
+		"Before terminal done, emit exactly one execution report comment body prefixed with REPORT_JSON:",
 		"Do NOT push. Do NOT create PR.",
 		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
+		`SIMUG: {"action":"comment","body":"REPORT_JSON:{\"task_ref\":\"Task 7.2d\",\"summary\":\"...\",\"branch\":\"agent/20260308-120000-task\",\"head\":\"<post-run-head-sha>\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}`,
 		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}`,
 	}
 	for _, needle := range required {
@@ -193,6 +195,7 @@ func TestBuildRepairPromptIncludesExecutionScopeLockConstraints(t *testing.T) {
 		`execution scope lock: stay on "agent/20260308-120000-execution-scope-lock" and implement only Task 7.2b`,
 		"in docs/PLANNING.md, do not change status markers for tasks other than Task 7.2b",
 		"at most one [IN_PROGRESS] task is allowed, and if present it must be Task 7.2b",
+		"when terminal action is done, emit one REPORT_JSON comment with task_ref, summary, branch, and head from this run",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {

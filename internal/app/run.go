@@ -31,6 +31,7 @@ const (
 	defaultMaxRepairAttempts = 2
 	maxCommentBodyChars      = 4000
 	defaultAllowedVerbs      = "do,retry,status,continue,comment,report,help"
+	executionReportPrefix    = "REPORT_JSON:"
 )
 
 var bootstrapIntentSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,40}$`)
@@ -347,7 +348,7 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	}
 
 	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, func(result agent.Result) error {
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, func(result agent.Result, _, _ string) error {
 		return validateIssueUpdateActions(result.Actions)
 	})
 	if err != nil {
@@ -544,7 +545,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 			var report agent.Action
 			prompt := o.buildIssueTriagePrompt(*selected, "")
-			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result) error {
+			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result, _, _ string) error {
 				r, validateErr := validateIssueTriageResult(result, selected.Number)
 				if validateErr != nil {
 					return validateErr
@@ -596,7 +597,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 		var approved state.BootstrapIntent
 		intentPrompt := o.buildBootstrapIntentPrompt(o.state.PendingTaskID, "")
-		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result) error {
+		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result, _, _ string) error {
 			intent, validateErr := o.validateBootstrapIntentResult(result, o.state.PendingTaskID)
 			if validateErr != nil {
 				return validateErr
@@ -648,14 +649,28 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	expectedBranch := intent.BranchName
 	prompt := o.buildBootstrapPrompt(intent, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, func(result agent.Result) error {
+	var report executionReport
+	var actionsForApply []agent.Action
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, func(result agent.Result, before, after string) error {
 		if err := validateIssueUpdateActions(result.Actions); err != nil {
 			return err
 		}
-		return o.validateExecutionScopeLock(scopeLock)
+		if err := o.validateExecutionScopeLock(scopeLock); err != nil {
+			return err
+		}
+		validatedReport, filteredActions, err := validateExecutionReport(result, intent, expectedBranch, before, after)
+		if err != nil {
+			return err
+		}
+		report = validatedReport
+		actionsForApply = filteredActions
+		return nil
 	})
 	if err != nil {
 		return err
+	}
+	if actionsForApply != nil {
+		result.Actions = actionsForApply
 	}
 
 	if result.Terminal.Type == agent.ActionIdle {
@@ -678,6 +693,10 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	}
 
 	title, body := normalizePRMetadata(result.Terminal)
+	if strings.TrimSpace(result.Terminal.Summary) == "" && strings.TrimSpace(report.Summary) != "" {
+		result.Terminal.Summary = strings.TrimSpace(report.Summary)
+		title, body = normalizePRMetadata(result.Terminal)
+	}
 	if strings.TrimSpace(result.Terminal.PRTitle) == "" && strings.TrimSpace(intent.PRTitle) != "" {
 		title = strings.TrimSpace(intent.PRTitle)
 	}
@@ -721,7 +740,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	return nil
 }
 
-func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, validateResult func(agent.Result) error) (agent.Result, string, error) {
+func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, validateResult func(agent.Result, string, string) error) (agent.Result, string, error) {
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, expectedBranch, beforeHead, currentPrompt); err != nil {
@@ -818,7 +837,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 
 		afterHead, validationErr := o.validatePostAgentState(ctx, result, expectedBranch, beforeHead, requireCommitForDone, allowIdleOnMain)
 		if validationErr == nil && validateResult != nil {
-			validationErr = validateResult(result)
+			validationErr = validateResult(result, beforeHead, afterHead)
 		}
 		if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, string(result.Terminal.Type), "", errorText(validationErr)); journalErr != nil {
 			return agent.Result{}, "", journalErr
@@ -1679,6 +1698,7 @@ func (o *orchestrator) buildBootstrapPrompt(intent state.BootstrapIntent, repair
 	b.WriteString("- Implement the next task and commit changes locally when complete.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
 	b.WriteString("- Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.\n")
+	b.WriteString("- Before terminal done, emit exactly one execution report comment body prefixed with REPORT_JSON: containing task_ref, summary, branch, and head.\n")
 	b.WriteString("- Do NOT push. Do NOT create PR.\n")
 	b.WriteString("- Use SIMUG_MANAGER: for manager-facing human text; unprefixed text is quarantined.\n")
 	b.WriteString("- Keep working tree clean before finishing.\n")
@@ -1690,6 +1710,7 @@ func (o *orchestrator) buildBootstrapPrompt(intent state.BootstrapIntent, repair
 
 	b.WriteString("Protocol JSON lines:\n")
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
+	b.WriteString(`SIMUG: {"action":"comment","body":"REPORT_JSON:{\"task_ref\":\"Task 7.2d\",\"summary\":\"...\",\"branch\":\"agent/20260308-120000-task\",\"head\":\"<post-run-head-sha>\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}` + "\n")
 	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"issue_update","issue_number":123,"relation":"relates","comment":"This task has direct impact on this issue because ..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}` + "\n")
@@ -1726,6 +1747,14 @@ type executionScopeLock struct {
 	TaskID           string
 	BranchName       string
 	PlanningBaseline planningStatusSnapshot
+}
+
+type executionReport struct {
+	TaskRef string   `json:"task_ref"`
+	Summary string   `json:"summary"`
+	Branch  string   `json:"branch"`
+	Head    string   `json:"head"`
+	Checks  []string `json:"checks,omitempty"`
 }
 
 func (o *orchestrator) validateBootstrapIntentResult(result agent.Result, pendingTaskID string) (state.BootstrapIntent, error) {
@@ -1956,6 +1985,76 @@ func (o *orchestrator) validateExecutionScopeLock(lock *executionScopeLock) erro
 	return nil
 }
 
+func validateExecutionReport(result agent.Result, intent state.BootstrapIntent, expectedBranch, beforeHead, afterHead string) (executionReport, []agent.Action, error) {
+	if result.Terminal.Type == agent.ActionIdle {
+		return executionReport{}, result.Actions, nil
+	}
+	if result.Terminal.Type != agent.ActionDone {
+		return executionReport{}, nil, fmt.Errorf("execution report validation requires terminal done or idle action")
+	}
+
+	var report executionReport
+	reportCount := 0
+	filtered := make([]agent.Action, 0, len(result.Actions))
+	for _, action := range result.Actions {
+		if action.Type == agent.ActionComment {
+			body := strings.TrimSpace(action.Body)
+			if strings.HasPrefix(body, executionReportPrefix) {
+				reportCount++
+				if reportCount > 1 {
+					return executionReport{}, nil, fmt.Errorf("execution report validation requires exactly one REPORT_JSON comment, got %d", reportCount)
+				}
+				reportJSON := strings.TrimSpace(strings.TrimPrefix(body, executionReportPrefix))
+				if reportJSON == "" {
+					return executionReport{}, nil, fmt.Errorf("execution report payload is empty")
+				}
+				if err := json.Unmarshal([]byte(reportJSON), &report); err != nil {
+					return executionReport{}, nil, fmt.Errorf("decode execution report payload: %w", err)
+				}
+				continue
+			}
+		}
+		filtered = append(filtered, action)
+	}
+	if reportCount != 1 {
+		return executionReport{}, nil, fmt.Errorf("execution report validation requires exactly one REPORT_JSON comment, got %d", reportCount)
+	}
+	if strings.TrimSpace(report.TaskRef) == "" {
+		return executionReport{}, nil, fmt.Errorf("execution report requires non-empty task_ref")
+	}
+	if strings.TrimSpace(report.Summary) == "" {
+		return executionReport{}, nil, fmt.Errorf("execution report requires non-empty summary")
+	}
+	if strings.TrimSpace(report.Branch) == "" {
+		return executionReport{}, nil, fmt.Errorf("execution report requires non-empty branch")
+	}
+	if strings.TrimSpace(report.Head) == "" {
+		return executionReport{}, nil, fmt.Errorf("execution report requires non-empty head")
+	}
+
+	intentTaskID, err := parseTaskIDFromRef(intent.TaskRef)
+	if err != nil {
+		return executionReport{}, nil, fmt.Errorf("execution report intent task_ref invalid: %w", err)
+	}
+	reportTaskID, err := parseTaskIDFromRef(report.TaskRef)
+	if err != nil {
+		return executionReport{}, nil, fmt.Errorf("execution report task_ref invalid: %w", err)
+	}
+	if reportTaskID != intentTaskID {
+		return executionReport{}, nil, fmt.Errorf("execution report task_ref %q does not match approved intent task_ref %q", report.TaskRef, intent.TaskRef)
+	}
+	if strings.TrimSpace(report.Branch) != strings.TrimSpace(expectedBranch) {
+		return executionReport{}, nil, fmt.Errorf("execution report branch %q does not match expected branch %q", report.Branch, expectedBranch)
+	}
+	if strings.TrimSpace(report.Head) != strings.TrimSpace(afterHead) {
+		return executionReport{}, nil, fmt.Errorf("execution report head %q does not match post-run head %q", report.Head, afterHead)
+	}
+	if strings.TrimSpace(report.Head) == strings.TrimSpace(beforeHead) {
+		return executionReport{}, nil, fmt.Errorf("execution report head %q did not advance from pre-run head", report.Head)
+	}
+	return report, filtered, nil
+}
+
 func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr error, scopeLock *executionScopeLock) string {
 	var b strings.Builder
 	b.WriteString("Your previous run violated simug validation checks.\n")
@@ -1976,6 +2075,7 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 		b.WriteString(fmt.Sprintf("- execution scope lock: stay on %q and implement only %s\n", scopeLock.BranchName, scopeLock.TaskRef))
 		b.WriteString(fmt.Sprintf("- in docs/PLANNING.md, do not change status markers for tasks other than Task %s\n", scopeLock.TaskID))
 		b.WriteString(fmt.Sprintf("- at most one [IN_PROGRESS] task is allowed, and if present it must be Task %s\n", scopeLock.TaskID))
+		b.WriteString("- when terminal action is done, emit one REPORT_JSON comment with task_ref, summary, branch, and head from this run\n")
 	}
 	b.WriteString("Protocol JSON lines:\n")
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
