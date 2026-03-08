@@ -10,7 +10,7 @@ CMD_PKG ?= ./cmd/simug
 ITERATIONS ?= 4
 SLEEP_SECONDS ?= 2
 
-CODEX_CMD ?= codex
+CODEX_CMD ?= codex exec
 CANARY_OUT ?= .simug/canary/real-codex
 REPO ?= .
 ISSUE_PR ?=

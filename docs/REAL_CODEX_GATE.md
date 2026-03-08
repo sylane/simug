@@ -14,15 +14,17 @@ Artifacts are retained for audit and failure diagnosis.
 ## Prerequisites
 
 - `gh auth status` is healthy in the runtime session.
-- `SIMUG_REAL_CODEX_CMD` runtime command is available (default `codex`).
+- `SIMUG_REAL_CODEX_CMD` runtime command is available (default auto-detect prefers `codex exec`).
 - Network access is enabled for the Codex runtime environment.
 - Workspace has write access to artifact root (default `.simug/canary/real-codex`).
 
 ## Execute Gate
 
 ```bash
-scripts/canary-real-codex-gate.sh --cmd "codex" --out .simug/canary/real-codex --retain-days 14
+scripts/canary-real-codex-gate.sh --cmd "codex exec" --out .simug/canary/real-codex --retain-days 14
 ```
+
+If `--cmd` is omitted, scripts auto-detect and prefer non-interactive `codex exec`.
 
 ## Expected Runtime/Cost Envelope
 

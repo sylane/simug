@@ -28,7 +28,10 @@ When phase ordering conflicts with design alignment, execute tasks in this order
 9. Task 6.5a (real Codex protocol conformance canary)
 10. Task 6.5b (real Codex repair/restart interaction canary)
 11. Task 6.5c (real Codex validation gate integration)
-12. Task 6.3+ (remaining self-hosting continuation)
+12. Task 6.10a (Codex command auto-detection + non-interactive defaults)
+13. Task 6.10b (Codex runtime preflight diagnostics)
+14. Task 6.10c (real-Codex canary reliability + documentation)
+15. Task 6.3+ (remaining self-hosting continuation)
 
 Rationale:
 - Design requires orchestrator/project ownership boundary first.
@@ -244,6 +247,18 @@ Execution note:
 - [x] **Task 6.9: Stop/restart chaos validation**
   - Scope: run scripted stop/restart/crash-style interruption scenarios at different loop points and verify safe recovery invariants (branch, clean tree, state mode, active PR/issue coherence), reporting pass/fail against the 6.8 go/no-go checklist criteria.
   - Done when: worker is demonstrably safe to stop/restart at arbitrary points without desynchronizing state.
+
+- [x] **Task 6.10a: Codex command auto-detection + non-interactive defaults**
+  - Scope: when `SIMUG_AGENT_CMD` is unset, detect available Codex CLI mode and prefer `codex exec` for non-interactive operation with fallback compatibility; align canary scripts/Make targets/docs with the same non-interactive default while preserving explicit `--cmd`/env overrides.
+  - Done when: out-of-box runs use a non-interactive Codex command by default in most environments, and operators can still override command/profile/config explicitly.
+
+- [ ] **Task 6.10b: Codex runtime preflight diagnostics**
+  - Scope: add deterministic preflight checks and actionable failure messages for common Codex runtime blockers (missing command, auth missing/invalid, unwritable Codex home/cache paths including `~/.codex/tmp/arg0` style permission failures) without taking ownership of Codex account setup.
+  - Done when: canary/simug startup failures surface precise diagnostics that identify environment fix actions instead of opaque command errors.
+
+- [ ] **Task 6.10c: Real-Codex canary reliability and operator docs**
+  - Scope: strengthen canary gate reliability with clear runtime assumptions, recommended command profiles, and troubleshooting/runbook updates tied to archived artifacts.
+  - Done when: real-Codex canary execution is reproducible in a standard developer environment and documented with deterministic troubleshooting flow.
 
 ## Phase 7: Maintainability, Modularity, and Safety Hardening (Priority)
 

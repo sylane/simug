@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestLoadConfigReadsSimugEnvVars(t *testing.T) {
 	t.Setenv("SIMUG_AGENT_CMD", "codex --profile simug")
@@ -35,5 +38,65 @@ func TestLoadConfigReadsSimugEnvVars(t *testing.T) {
 	}
 	if _, ok := cfg.AllowedVerbs["status"]; !ok {
 		t.Fatalf("expected status in allowed verbs")
+	}
+}
+
+func TestLoadConfigUsesAutoDetectedAgentCommandWhenUnset(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", "")
+	restore := setAgentCommandProbersForTest(
+		func(name string) (string, error) { return "/usr/bin/codex", nil },
+		func(name string, args ...string) error { return nil },
+	)
+	defer restore()
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig returned error: %v", err)
+	}
+	if cfg.AgentCommand != "codex exec" {
+		t.Fatalf("AgentCommand=%q, want codex exec", cfg.AgentCommand)
+	}
+}
+
+func TestLoadConfigDoesNotProbeWhenSimugAgentCmdExplicit(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", "custom-agent --mode strict")
+	restore := setAgentCommandProbersForTest(
+		func(name string) (string, error) {
+			t.Fatalf("lookPath should not run when SIMUG_AGENT_CMD is set")
+			return "", nil
+		},
+		func(name string, args ...string) error {
+			t.Fatalf("probe should not run when SIMUG_AGENT_CMD is set")
+			return nil
+		},
+	)
+	defer restore()
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig returned error: %v", err)
+	}
+	if cfg.AgentCommand != "custom-agent --mode strict" {
+		t.Fatalf("AgentCommand=%q, want custom-agent --mode strict", cfg.AgentCommand)
+	}
+}
+
+func TestLoadConfigFallsBackWhenCodexNotFound(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", "")
+	restore := setAgentCommandProbersForTest(
+		func(name string) (string, error) { return "", errors.New("not found") },
+		func(name string, args ...string) error {
+			t.Fatalf("probe should not run when codex is missing")
+			return nil
+		},
+	)
+	defer restore()
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig returned error: %v", err)
+	}
+	if cfg.AgentCommand != "codex exec" {
+		t.Fatalf("AgentCommand=%q, want codex exec", cfg.AgentCommand)
 	}
 }

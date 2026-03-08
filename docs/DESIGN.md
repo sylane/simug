@@ -298,6 +298,8 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 ### 8.1 Invocation model
 
 - Codex is invoked as a subprocess command configured by env (`SIMUG_AGENT_CMD`).
+- When `SIMUG_AGENT_CMD` is unset, simug auto-detects command mode and prefers non-interactive `codex exec`, with compatibility fallback to `codex` when needed.
+- Simug does not provision Codex auth/config; it relies on environment-configured Codex runtime and reports execution/protocol failures with diagnostics.
 - Orchestrator sends a structured prompt through stdin.
 - Orchestrator captures stdout/stderr for protocol parsing and diagnostics.
 
@@ -530,7 +532,7 @@ Notes:
 ## 13. Config (Environment)
 
 - `SIMUG_POLL_SECONDS` (default: 30)
-- `SIMUG_AGENT_CMD` (default: `codex`)
+- `SIMUG_AGENT_CMD` (default: auto-detected: `codex exec` when available, else `codex`)
 - `SIMUG_MAX_REPAIR_ATTEMPTS` (default: 2)
 - `SIMUG_MAIN_BRANCH` (default: `main`)
 - `SIMUG_BRANCH_PREFIX` (default: `agent/`)

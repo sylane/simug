@@ -118,7 +118,7 @@ Common targets:
 - `make run`
 - `make run-once`
 - `make selfhost-loop ITERATIONS=5`
-- `make canary-gate CODEX_CMD="codex"`
+- `make canary-gate CODEX_CMD="codex exec"`
 - `make chaos`
 
 ## Running in Any Repository
@@ -139,7 +139,7 @@ Planned extension: command-line flags for common runtime options (without breaki
 
 Current variables:
 
-- `SIMUG_AGENT_CMD` (default: `codex`)
+- `SIMUG_AGENT_CMD` (default: auto-detected: `codex exec` when available, else `codex`)
 - `SIMUG_POLL_SECONDS` (default: `30`)
 - `SIMUG_MAIN_BRANCH` (default: `main`)
 - `SIMUG_BRANCH_PREFIX` (default: `agent/`)
@@ -150,7 +150,7 @@ Current variables:
 Example:
 
 ```bash
-export SIMUG_AGENT_CMD="codex"
+export SIMUG_AGENT_CMD="codex exec"
 export SIMUG_POLL_SECONDS=20
 export SIMUG_ALLOWED_COMMAND_USERS="my-github-login,teammate-login"
 export SIMUG_ALLOWED_COMMAND_VERBS="do,retry,status,comment"
@@ -184,25 +184,25 @@ sandbox_mode = "workspace-write"
 network_access = true
 ```
 
-Use that profile when launching Codex (or in `SIMUG_AGENT_CMD`) for this self-hosted workflow:
+Use that profile in non-interactive mode (or in `SIMUG_AGENT_CMD`) for this self-hosted workflow:
 
 ```bash
-codex --profile simug
-export SIMUG_AGENT_CMD="codex --profile simug"
+codex exec --profile simug
+export SIMUG_AGENT_CMD="codex exec --profile simug"
 ```
 
 One-off equivalent without editing config file (self-hosted workflow):
 
 ```bash
-codex --sandbox workspace-write --ask-for-approval on-request \
+codex exec --sandbox workspace-write --ask-for-approval on-request \
   --config sandbox_workspace_write.network_access=true
 ```
 
 If you need fully unattended execution (no approval prompts), use only in a trusted/dev container:
 
 ```bash
-codex --sandbox danger-full-access --ask-for-approval never
-# or: codex --dangerously-bypass-approvals-and-sandbox
+codex exec --sandbox danger-full-access --ask-for-approval never
+# or: codex exec --dangerously-bypass-approvals-and-sandbox
 ```
 
 Quick verification from the same Codex session (self-hosted workflow):
@@ -278,21 +278,22 @@ Go/no-go criteria for enabling self-host default are documented in `docs/SELF_HO
 To validate protocol behavior against a real Codex runtime (not shell fixtures):
 
 ```bash
-scripts/canary-real-codex-protocol.sh --cmd "codex" --out .simug/canary/real-codex
+scripts/canary-real-codex-protocol.sh --cmd "codex exec" --out .simug/canary/real-codex
 ```
 
 This runs `TestRealCodexProtocolConformanceCanary` with real runtime prompts and archives per-scenario artifacts (`prompt.txt`, `raw_output.txt`, `result.json`) under the chosen output directory.
+When `--cmd` is omitted, the script auto-detects and prefers `codex exec`.
 
 To validate repair/restart boundaries with real Codex runtime:
 
 ```bash
-scripts/canary-real-codex-recovery.sh --cmd "codex" --out .simug/canary/real-codex
+scripts/canary-real-codex-recovery.sh --cmd "codex exec" --out .simug/canary/real-codex
 ```
 
 To run the combined real-Codex validation gate (protocol + recovery):
 
 ```bash
-scripts/canary-real-codex-gate.sh --cmd "codex" --out .simug/canary/real-codex --retain-days 14
+scripts/canary-real-codex-gate.sh --cmd "codex exec" --out .simug/canary/real-codex --retain-days 14
 ```
 
 To verify live sandbox dry-run evidence (issue-driven + planning-driven PRs):

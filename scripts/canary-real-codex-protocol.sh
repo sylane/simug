@@ -7,10 +7,23 @@ usage: scripts/canary-real-codex-protocol.sh [--cmd <agent-cmd>] [--out <dir>]
 
 Runs real-Codex protocol conformance canary scenarios through internal/agent test harness.
 Artifacts are written under .simug/canary/real-codex by default.
+Default command prefers non-interactive Codex (`codex exec`) when available.
 EOF
 }
 
-agent_cmd="codex"
+default_agent_cmd() {
+  if command -v codex >/dev/null 2>&1; then
+    if codex exec --help >/dev/null 2>&1; then
+      printf 'codex exec'
+      return
+    fi
+    printf 'codex'
+    return
+  fi
+  printf 'codex exec'
+}
+
+agent_cmd="${SIMUG_REAL_CODEX_CMD:-$(default_agent_cmd)}"
 out_dir=".simug/canary/real-codex"
 
 while [[ $# -gt 0 ]]; do

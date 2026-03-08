@@ -44,6 +44,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added self-host go/no-go checklist runbook (`docs/SELF_HOST_GO_NO_GO.md`) with explicit release gates, rollback flow, and operator command set.
 - Added stop/restart chaos validation workflow (`scripts/chaos-stop-restart.sh`, `docs/CHAOS_STOP_RESTART.md`) covering SIGTERM/SIGKILL interruption recovery checks.
 - Added a top-level `Makefile` with thin workflow targets for build/test/coverage/install/run plus self-host/canary/sandbox/chaos commands, and documented usage in `README.md`.
+- Added agent-command auto-detection for `SIMUG_AGENT_CMD` defaults, preferring non-interactive `codex exec` with compatibility fallback to `codex`.
+- Added explicit startup trace of resolved `agent_command` in runtime output/event log metadata for easier Codex integration diagnosis.
 
 ### Changed
 
@@ -52,3 +54,4 @@ https://keepachangelog.com/en/1.1.0/
 - Extended issue roadmap with post-triage lifecycle tasks (protocol linkage during implementation, PR-scoped issue ledger, orchestrator-owned issue updates, and close-on-merge finalization).
 - Added design-first execution ordering in planning to prioritize ownership-boundary and issue-lifecycle completion before remaining self-hosting milestones.
 - Expanded design document with feasibility assessment, explicit known gaps, issue lifecycle target behavior, and mode-to-action handling matrix.
+- Updated real-Codex canary scripts, gate docs, README examples, and Make defaults to use/auto-detect non-interactive `codex exec` by default while preserving explicit command overrides.

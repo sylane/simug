@@ -7,10 +7,23 @@ usage: scripts/canary-real-codex-gate.sh [--cmd <agent-cmd>] [--out <dir>] [--re
 
 Runs both real-Codex canaries (protocol + recovery) as a single validation gate.
 Writes gate summary and preserves per-canary artifacts under the selected output root.
+Default command prefers non-interactive Codex (`codex exec`) when available.
 EOF
 }
 
-agent_cmd="codex"
+default_agent_cmd() {
+  if command -v codex >/dev/null 2>&1; then
+    if codex exec --help >/dev/null 2>&1; then
+      printf 'codex exec'
+      return
+    fi
+    printf 'codex'
+    return
+  fi
+  printf 'codex exec'
+}
+
+agent_cmd="${SIMUG_REAL_CODEX_CMD:-$(default_agent_cmd)}"
 out_dir=".simug/canary/real-codex"
 retain_days="14"
 

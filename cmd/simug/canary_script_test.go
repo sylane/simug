@@ -19,6 +19,8 @@ func TestRealCodexCanaryScriptContract(t *testing.T) {
 		"SIMUG_REAL_CODEX=1",
 		"SIMUG_REAL_CODEX_CMD",
 		"SIMUG_CANARY_OUT_DIR",
+		"default_agent_cmd",
+		"codex exec",
 		"go test ./internal/agent -run TestRealCodexProtocolConformanceCanary",
 	}
 	for _, needle := range required {
@@ -40,6 +42,8 @@ func TestRealCodexRecoveryCanaryScriptContract(t *testing.T) {
 		"SIMUG_REAL_CODEX=1",
 		"SIMUG_REAL_CODEX_CMD",
 		"SIMUG_CANARY_OUT_DIR",
+		"default_agent_cmd",
+		"codex exec",
 		"go test ./internal/app -run 'TestRealCodex(RepairInteractionCanary|RestartRecoveryBoundaryCanary)$'",
 	}
 	for _, needle := range required {
@@ -60,6 +64,8 @@ func TestRealCodexGateScriptContract(t *testing.T) {
 	required := []string{
 		"canary-real-codex-protocol.sh",
 		"canary-real-codex-recovery.sh",
+		"default_agent_cmd",
+		"codex exec",
 		"summary.json",
 		"--retain-days",
 	}

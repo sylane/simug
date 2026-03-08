@@ -172,11 +172,13 @@ func run(ctx context.Context, startDir string, once bool) error {
 	fmt.Printf("repo: %s\n", repo.FullName())
 	fmt.Printf("user: %s\n", user)
 	fmt.Printf("poll_interval: %s\n", cfg.PollInterval)
+	fmt.Printf("agent_command: %s\n", cfg.AgentCommand)
 	fmt.Printf("command_authors: %s\n", strings.Join(sortedKeys(cfg.AllowedUsers), ","))
 	o.logEvent("startup", "worker started", map[string]any{
 		"repo":             repo.FullName(),
 		"user":             user,
 		"poll_interval":    cfg.PollInterval.String(),
+		"agent_command":    cfg.AgentCommand,
 		"command_authors":  sortedKeys(cfg.AllowedUsers),
 		"allowed_commands": sortedKeys(cfg.AllowedVerbs),
 		"once_mode":        once,
@@ -1674,7 +1676,7 @@ func loadConfig() (config, error) {
 		cfg.MaxRepairAttempts = v
 	}
 	if cfg.AgentCommand == "" {
-		cfg.AgentCommand = "codex"
+		cfg.AgentCommand = defaultAgentCommand()
 	}
 	if raw := strings.TrimSpace(os.Getenv("SIMUG_ALLOWED_COMMAND_USERS")); raw != "" {
 		cfg.AllowedUsers = splitCSVSet(raw)
