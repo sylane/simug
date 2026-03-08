@@ -241,7 +241,7 @@ Execution note:
   - Scope: define explicit gates for enabling simug-as-default for simug development (required tasks/tests/log artifacts including self-host canary + real-Codex gate outputs, rollback procedure, operator commands including failure diagnosis flow such as `simug explain-last-failure`).
   - Done when: team has a concrete and auditable criterion for switching from direct/manual development to self-host default.
 
-- [ ] **Task 6.9: Stop/restart chaos validation**
+- [x] **Task 6.9: Stop/restart chaos validation**
   - Scope: run scripted stop/restart/crash-style interruption scenarios at different loop points and verify safe recovery invariants (branch, clean tree, state mode, active PR/issue coherence), reporting pass/fail against the 6.8 go/no-go checklist criteria.
   - Done when: worker is demonstrably safe to stop/restart at arbitrary points without desynchronizing state.
 

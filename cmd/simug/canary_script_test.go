@@ -112,3 +112,25 @@ func TestSelfHostCanaryScriptContract(t *testing.T) {
 		}
 	}
 }
+
+func TestChaosStopRestartScriptContract(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "chaos-stop-restart.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read chaos script: %v", err)
+	}
+	content := string(data)
+
+	required := []string{
+		"SIGTERM",
+		"SIGKILL",
+		"run --once",
+		".simug/chaos",
+		"summary.json",
+	}
+	for _, needle := range required {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("missing %q in chaos script", needle)
+		}
+	}
+}

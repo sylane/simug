@@ -16,6 +16,9 @@ Use this checklist before enabling simug-as-default for simug development.
 - [ ] Self-host canary passed:
   - `scripts/self-host-canary.sh --iterations <n>`
   - summary artifact retained.
+- [ ] Chaos stop/restart validation passed:
+  - `scripts/chaos-stop-restart.sh`
+  - summary artifact retained.
 - [ ] No unresolved high-severity invariant failures in latest `.simug/events.log`.
 - [ ] Operator rollback plan is rehearsed and documented.
 

@@ -244,6 +244,12 @@ For restart-boundary self-host canary validation:
 scripts/self-host-canary.sh --repo . --iterations 4
 ```
 
+For stop/restart chaos validation:
+
+```bash
+scripts/chaos-stop-restart.sh --repo . --sleep-seconds 2
+```
+
 Go/no-go criteria for enabling self-host default are documented in `docs/SELF_HOST_GO_NO_GO.md`.
 
 ## Real Codex Protocol Canary
