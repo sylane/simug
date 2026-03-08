@@ -41,6 +41,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added `scripts/canary-real-codex-gate.sh` and `docs/REAL_CODEX_GATE.md` to make protocol+recovery canaries an auditable operator/release validation gate with retention policy.
 - Added sandbox dry-run runbook + verifier (`docs/SANDBOX_DRY_RUN.md`, `scripts/sandbox-dry-run.sh`) to validate merged issue-driven and planning-driven PR evidence in real GitHub environments.
 - Added end-to-end self-host canary workflow (`scripts/self-host-canary.sh`, `docs/SELF_HOST_CANARY.md`) with two-phase restart-boundary execution and summary artifacts.
+- Added self-host go/no-go checklist runbook (`docs/SELF_HOST_GO_NO_GO.md`) with explicit release gates, rollback flow, and operator command set.
 
 ### Changed
 

@@ -189,6 +189,7 @@ Before finalizing a task:
 - Planning refinement pass is completed and reflected in `docs/PLANNING.md` or explicitly recorded as `None` in task history.
 - Task context exists in `history/` and includes concise validation evidence.
 - For real-runtime readiness gates, `scripts/canary-real-codex-gate.sh` is executed and artifacts are retained per `docs/REAL_CODEX_GATE.md`.
+- For self-host default enablement decisions, checklist in `docs/SELF_HOST_GO_NO_GO.md` is evaluated and archived.
 
 If `go` or `gh` is unavailable in the execution environment, record this explicitly in task completion notes and run the gates on the next environment where tools are available.
 
