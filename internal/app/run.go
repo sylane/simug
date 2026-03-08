@@ -649,6 +649,10 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, validateResult func(agent.Result) error) (agent.Result, string, error) {
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
+		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, expectedBranch, beforeHead, currentPrompt); err != nil {
+			return agent.Result{}, "", err
+		}
+
 		fmt.Printf("agent: running Codex (attempt %d/%d)\n", attempt+1, o.cfg.MaxRepairAttempts+1)
 		runStart := time.Now()
 		o.logEvent("agent_attempt", "running codex attempt", map[string]any{
@@ -662,6 +666,9 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		result, err := o.runner.Run(ctx, currentPrompt)
 		if err != nil {
 			rawOutput := agent.RawOutputFromError(err)
+			if journalErr := o.recordInFlightAttemptResult(attempt+1, "", "", err.Error(), ""); journalErr != nil {
+				return agent.Result{}, "", journalErr
+			}
 			paths, archiveErr := o.archiveAgentAttempt(
 				attempt+1,
 				o.cfg.MaxRepairAttempts+1,
@@ -738,6 +745,9 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		if validationErr == nil && validateResult != nil {
 			validationErr = validateResult(result)
 		}
+		if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, string(result.Terminal.Type), "", errorText(validationErr)); journalErr != nil {
+			return agent.Result{}, "", journalErr
+		}
 		paths, archiveErr := o.archiveAgentAttempt(
 			attempt+1,
 			o.cfg.MaxRepairAttempts+1,
@@ -766,6 +776,9 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		}
 
 		if validationErr == nil {
+			if err := o.clearInFlightAttemptJournal(); err != nil {
+				return agent.Result{}, "", err
+			}
 			o.logEvent("invariant_decision", "post-agent validation passed", map[string]any{
 				"pass":                 true,
 				"attempt":              attempt + 1,

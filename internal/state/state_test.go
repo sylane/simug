@@ -44,6 +44,19 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 				RecordedAt:     time.Now().UTC().Truncate(time.Second),
 			},
 		},
+		InFlightAttempt: &Attempt{
+			RunID:          "run-x",
+			TickSeq:        3,
+			AttemptIndex:   1,
+			MaxAttempts:    3,
+			ExpectedBranch: "agent/20260307-120000-next-task",
+			Mode:           ModeManagedPR,
+			Phase:          AttemptPhaseStarted,
+			PromptHash:     "abc123",
+			BeforeHead:     "deadbeef",
+			StartedAt:      time.Now().UTC().Truncate(time.Second),
+			UpdatedAt:      time.Now().UTC().Truncate(time.Second),
+		},
 		LastCommentID:       1,
 		LastIssueCommentID:  2,
 		LastReviewCommentID: 3,
@@ -71,6 +84,9 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 	}
 	if len(got.IssueLinks) != 1 || got.IssueLinks[0].IssueNumber != 13 || got.IssueLinks[0].IdempotencyKey != "k1" {
 		t.Fatalf("issue links mismatch: got=%#v", got.IssueLinks)
+	}
+	if got.InFlightAttempt == nil || got.InFlightAttempt.PromptHash != "abc123" || got.InFlightAttempt.AttemptIndex != 1 {
+		t.Fatalf("in_flight_attempt mismatch: got=%#v", got.InFlightAttempt)
 	}
 }
 
@@ -119,5 +135,22 @@ func TestNormalizeFiltersInvalidIssueLinks(t *testing.T) {
 	st.Normalize()
 	if len(st.IssueLinks) != 1 || st.IssueLinks[0].IssueNumber != 6 {
 		t.Fatalf("unexpected filtered issue links: %#v", st.IssueLinks)
+	}
+}
+
+func TestNormalizeDropsInvalidInFlightAttempt(t *testing.T) {
+	st := &State{
+		InFlightAttempt: &Attempt{
+			AttemptIndex:   0,
+			MaxAttempts:    2,
+			ExpectedBranch: "agent/x",
+			PromptHash:     "h",
+			Phase:          AttemptPhaseStarted,
+		},
+	}
+
+	st.Normalize()
+	if st.InFlightAttempt != nil {
+		t.Fatalf("expected invalid in_flight_attempt to be removed, got %#v", st.InFlightAttempt)
 	}
 }

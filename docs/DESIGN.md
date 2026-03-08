@@ -454,6 +454,23 @@ Schema (v2):
       "finalized": false
     }
   ],
+  "in_flight_attempt": {
+    "run_id": "20260308-010000-12345",
+    "tick_seq": 7,
+    "attempt_index": 1,
+    "max_attempts": 3,
+    "expected_branch": "agent/20260308-010000-fix-task",
+    "mode": "managed_pr",
+    "phase": "started",
+    "prompt_hash": "e5d3...",
+    "before_head": "abc123...",
+    "after_head": "",
+    "terminal_action": "",
+    "agent_error": "",
+    "validation_error": "",
+    "started_at": "2026-03-08T01:00:01Z",
+    "updated_at": "2026-03-08T01:00:01Z"
+  },
   "paused": false,
   "pause_reason": "",
   "last_manager_message_id": "",
@@ -473,6 +490,7 @@ Notes:
 
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
 - `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
+- `in_flight_attempt` records crash-safe per-attempt execution context before/after each Codex invocation (expected branch, mode, attempt index, prompt hash, pre/post head, error state).
 - `issue_links[*].comment_posted` tracks implementation-time issue-update comment application status.
 - `issue_links[*].finalized` tracks merge-finalization completion for each tracked linkage.
 - `paused=true` blocks autonomous loop progression until explicit resume command.

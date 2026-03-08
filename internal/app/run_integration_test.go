@@ -1144,6 +1144,125 @@ func TestRunRoutesManagerPrefixAndQuarantinesUnprefixedOutput(t *testing.T) {
 	}
 }
 
+func TestRunPersistsInFlightAttemptJournalOnAgentFailure(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {not-json}\n'`)
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"tick","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	err := RunOnce(context.Background(), tmp)
+	if err == nil {
+		t.Fatalf("expected run failure")
+	}
+
+	stateData, readErr := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if readErr != nil {
+		t.Fatalf("read state file: %v", readErr)
+	}
+	var st struct {
+		InFlightAttempt struct {
+			AttemptIndex   int    `json:"attempt_index"`
+			MaxAttempts    int    `json:"max_attempts"`
+			ExpectedBranch string `json:"expected_branch"`
+			Mode           string `json:"mode"`
+			Phase          string `json:"phase"`
+			PromptHash     string `json:"prompt_hash"`
+			BeforeHead     string `json:"before_head"`
+			AgentError     string `json:"agent_error"`
+		} `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.InFlightAttempt.AttemptIndex != 1 || st.InFlightAttempt.MaxAttempts != 1 {
+		t.Fatalf("unexpected attempt indexes: %#v", st.InFlightAttempt)
+	}
+	if st.InFlightAttempt.ExpectedBranch != branch || st.InFlightAttempt.Mode != "managed_pr" {
+		t.Fatalf("unexpected branch/mode in journal: %#v", st.InFlightAttempt)
+	}
+	if st.InFlightAttempt.Phase != "failed" {
+		t.Fatalf("phase=%q, want failed", st.InFlightAttempt.Phase)
+	}
+	if strings.TrimSpace(st.InFlightAttempt.PromptHash) == "" || strings.TrimSpace(st.InFlightAttempt.BeforeHead) == "" {
+		t.Fatalf("expected prompt hash and before head in journal: %#v", st.InFlightAttempt)
+	}
+	if strings.TrimSpace(st.InFlightAttempt.AgentError) == "" {
+		t.Fatalf("expected agent_error to be captured in journal: %#v", st.InFlightAttempt)
+	}
+}
+
+func TestRunClearsInFlightAttemptJournalAfterSuccessfulAttempt(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"tick","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		InFlightAttempt any `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.InFlightAttempt != nil {
+		t.Fatalf("expected in_flight_attempt to be cleared after success, got %#v", st.InFlightAttempt)
+	}
+}
+
 func TestRunNoOpenPRIdlePersistsIssueTriageMode(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)

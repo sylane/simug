@@ -9,6 +9,7 @@ import (
 
 	"simug/internal/agent"
 	"simug/internal/git"
+	"simug/internal/state"
 )
 
 func TestRunAgentWithValidationProtocolMatrix(t *testing.T) {
@@ -62,6 +63,7 @@ func TestRunAgentWithValidationProtocolMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			o := orchestrator{
 				repoRoot: tmp,
+				state:    &state.State{Mode: state.ModeManagedPR},
 				cfg: config{
 					MainBranch:        "main",
 					BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),

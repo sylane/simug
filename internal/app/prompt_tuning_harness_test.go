@@ -11,6 +11,7 @@ import (
 
 	"simug/internal/agent"
 	"simug/internal/git"
+	"simug/internal/state"
 )
 
 type dirtyThenCleanRunner struct {
@@ -52,6 +53,7 @@ func TestPromptTuningHarnessRecoversFromProtocolFailure(t *testing.T) {
 
 	o := orchestrator{
 		repoRoot: tmp,
+		state:    &state.State{Mode: state.ModeManagedPR},
 		cfg: config{
 			MainBranch:        "main",
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
@@ -97,6 +99,7 @@ func TestPromptTuningHarnessRecoversFromValidationFailure(t *testing.T) {
 
 	o := orchestrator{
 		repoRoot: tmp,
+		state:    &state.State{Mode: state.ModeManagedPR},
 		cfg: config{
 			MainBranch:        "main",
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
@@ -136,6 +139,7 @@ func TestPromptTuningHarnessFailsAfterBoundedProtocolRetries(t *testing.T) {
 
 	o := orchestrator{
 		repoRoot: tmp,
+		state:    &state.State{Mode: state.ModeManagedPR},
 		cfg: config{
 			MainBranch:        "main",
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),

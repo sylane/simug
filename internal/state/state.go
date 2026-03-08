@@ -27,12 +27,41 @@ type State struct {
 	ActiveIssue         int         `json:"active_issue"`
 	PendingTaskID       string      `json:"pending_task_id"`
 	IssueLinks          []IssueLink `json:"issue_links,omitempty"`
+	InFlightAttempt     *Attempt    `json:"in_flight_attempt,omitempty"`
 	LastCommentID       int64       `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
 	LastIssueCommentID  int64       `json:"last_issue_comment_id"`
 	LastReviewCommentID int64       `json:"last_review_comment_id"`
 	LastReviewID        int64       `json:"last_review_id"`
 	CursorUncertain     bool        `json:"cursor_uncertain"`
 	UpdatedAt           time.Time   `json:"updated_at"`
+}
+
+type AttemptPhase string
+
+const (
+	AttemptPhaseStarted     AttemptPhase = "started"
+	AttemptPhaseAgentExited AttemptPhase = "agent_exited"
+	AttemptPhaseValidated   AttemptPhase = "validated"
+	AttemptPhaseFailed      AttemptPhase = "failed"
+	AttemptPhaseRecovered   AttemptPhase = "recovered"
+)
+
+type Attempt struct {
+	RunID          string       `json:"run_id"`
+	TickSeq        int64        `json:"tick_seq"`
+	AttemptIndex   int          `json:"attempt_index"`
+	MaxAttempts    int          `json:"max_attempts"`
+	ExpectedBranch string       `json:"expected_branch"`
+	Mode           Mode         `json:"mode"`
+	Phase          AttemptPhase `json:"phase"`
+	PromptHash     string       `json:"prompt_hash"`
+	BeforeHead     string       `json:"before_head"`
+	AfterHead      string       `json:"after_head,omitempty"`
+	TerminalAction string       `json:"terminal_action,omitempty"`
+	AgentError     string       `json:"agent_error,omitempty"`
+	ValidationErr  string       `json:"validation_error,omitempty"`
+	StartedAt      time.Time    `json:"started_at"`
+	UpdatedAt      time.Time    `json:"updated_at"`
 }
 
 type IssueLink struct {
@@ -121,5 +150,18 @@ func (s *State) Normalize() {
 			filtered = append(filtered, link)
 		}
 		s.IssueLinks = filtered
+	}
+
+	if s.InFlightAttempt != nil {
+		a := s.InFlightAttempt
+		if a.AttemptIndex <= 0 || a.MaxAttempts <= 0 || strings.TrimSpace(a.ExpectedBranch) == "" || strings.TrimSpace(a.PromptHash) == "" {
+			s.InFlightAttempt = nil
+			return
+		}
+		switch a.Phase {
+		case AttemptPhaseStarted, AttemptPhaseAgentExited, AttemptPhaseValidated, AttemptPhaseFailed, AttemptPhaseRecovered:
+		default:
+			s.InFlightAttempt = nil
+		}
 	}
 }

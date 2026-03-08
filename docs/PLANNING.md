@@ -205,12 +205,12 @@ Execution note:
   - Scope: add a wrapper script for simug-on-simug development that rebuilds binary, starts one-shot mode (`simug run --once`), captures logs/artifacts, and restarts/resumes deterministically using explicit exit-code outcomes.
   - Done when: operator can run repeatable self-host loops with one command.
 
-- [ ] **Task 6.3: Crash-safe in-flight attempt journal**
+- [x] **Task 6.3: Crash-safe in-flight attempt journal**
   - Scope: persist attempt context before/after each Codex invocation (expected branch, pre/post head, attempt index, prompt hash, runtime mode), aligned with wrapper snapshot/log artifacts.
   - Done when: orchestrator restart can deterministically recover interrupted attempts.
 
 - [ ] **Task 6.4: Restart recovery state machine**
-  - Scope: implement explicit recovery transitions for interrupted runs (resume/replay/repair/abort) with invariant checks.
+  - Scope: implement explicit recovery transitions for interrupted runs (resume/replay/repair/abort) with invariant checks, consuming `in_flight_attempt` journal phases persisted in 6.3.
   - Done when: restart behavior is deterministic and documented for each failure mode.
 
 - [ ] **Task 6.5: Failure-injection integration tests**
