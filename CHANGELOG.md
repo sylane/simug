@@ -32,6 +32,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added PR-scoped issue linkage ledger persistence in `.simug/state.json` (`issue_links`) with deterministic idempotency keys so restart/retry preserves issue intent context.
 - Added orchestrator-owned implementation-time issue update comments from tracked issue linkage intents, with same-user scope checks and deterministic marker-based duplicate suppression.
 - Added merged-PR issue finalization workflow that rehydrates inactive PR state, posts idempotent finalization comments (`simug:issue-finalize:v1`), closes `fixes` issues, and marks tracked issue links finalized.
+- Added lifecycle/adversarial integration coverage for merged-finalization scope rejection, malformed issue linkage payload rejection, and restart-safe progression from managed issue updates to merge finalization.
 
 ### Changed
 

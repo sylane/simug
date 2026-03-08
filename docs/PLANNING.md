@@ -188,7 +188,7 @@ Design sync gate for this realignment queue (`7.1`, `7.2`, `7.3`, `5.9`-`5.13`):
   - Scope: when managed PR is detected merged, orchestrator comments on tracked fixed issues with PR reference, then closes those issues idempotently; non-fixed impacted issues receive informational-only comments.
   - Done when: merged PRs automatically finalize tracked fixed issues without duplicate comments/closures across restarts, and `docs/DESIGN.md` explicitly describes merge-triggered closure policy.
 
-- [ ] **Task 5.13: Lifecycle integration + adversarial tests**
+- [x] **Task 5.13: Lifecycle integration + adversarial tests**
   - Scope: add tests for protocol parsing, state persistence across restart, unauthorized issue attempts, malformed linkage payloads, merged-PR finalization (including inactive-PR state edge cases), and duplicate-suppression behavior.
   - Done when: issue lifecycle (triage -> implementation updates -> merge finalization) is deterministically covered by automated tests, with design/workflow docs updated for any contract changes discovered.
 
@@ -214,7 +214,7 @@ Execution note:
   - Done when: restart behavior is deterministic and documented for each failure mode.
 
 - [ ] **Task 6.5: Failure-injection integration tests**
-  - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, and restart mid-attempt.
+  - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, restart mid-attempt, and issue-link finalization fault paths (scope rejection + duplicate markers + close failures).
   - Done when: known failure classes are reproducible and covered by automated tests.
 
 - [ ] **Task 6.5a: Real Codex protocol conformance canary**
