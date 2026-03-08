@@ -260,6 +260,12 @@ To run the combined real-Codex validation gate (protocol + recovery):
 scripts/canary-real-codex-gate.sh --cmd "codex" --out .simug/canary/real-codex --retain-days 14
 ```
 
+To verify live sandbox dry-run evidence (issue-driven + planning-driven PRs):
+
+```bash
+scripts/sandbox-dry-run.sh --repo <owner/name> --issue-pr <n> --planning-pr <n> --issue <n>
+```
+
 What it does per iteration:
 
 - rebuilds `bin/simug`,

@@ -69,3 +69,25 @@ func TestRealCodexGateScriptContract(t *testing.T) {
 		}
 	}
 }
+
+func TestSandboxDryRunScriptContract(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "sandbox-dry-run.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read sandbox dry-run script: %v", err)
+	}
+	content := string(data)
+
+	required := []string{
+		"--repo",
+		"--issue-pr",
+		"--planning-pr",
+		"gh pr view",
+		".simug/canary/sandbox",
+	}
+	for _, needle := range required {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("missing %q in sandbox dry-run script", needle)
+		}
+	}
+}

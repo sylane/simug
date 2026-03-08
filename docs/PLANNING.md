@@ -229,12 +229,12 @@ Execution note:
   - Scope: integrate real Codex canaries into operator/release workflow (manual gate and/or scheduled gate) with clear prerequisites, cost/runtime expectations, and artifact retention, including protocol + recovery canary runners.
   - Done when: release readiness requires recent successful real Codex validation evidence.
 
-- [ ] **Task 6.6: Live GitHub + real Codex dry-run on a sandbox repo**
+- [x] **Task 6.6: Live GitHub + real Codex dry-run on a sandbox repo**
   - Scope: validate issue-first intake plus polling/replies/push/PR transitions end-to-end with real GitHub API and real Codex runtime, using 6.5c validation gate artifacts as prerequisite evidence.
   - Done when: at least one issue-driven and one planning-driven PR lifecycle complete without manual state repair.
 
 - [ ] **Task 6.7: End-to-end self-hosting canary workflow**
-  - Scope: scripted canary that runs simug on simug with trace capture and verifies PR/session continuity across at least one restart.
+  - Scope: scripted canary that runs simug on simug with trace capture and verifies PR/session continuity across at least one restart, reusing sandbox/gate evidence flows.
   - Done when: self-hosted dogfood loop passes reproducibly.
 
 - [ ] **Task 6.8: Self-hosting go/no-go checklist and runbook**
