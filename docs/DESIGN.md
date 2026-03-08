@@ -157,6 +157,13 @@ Issue update comment semantics (implementation-time):
 - Posted comments include deterministic marker metadata (`simug:issue-update:v1`) derived from issue/relation/key/PR for duplicate suppression.
 - Marker presence from same user is treated as already-posted and updates state idempotently without posting duplicates.
 
+Merge finalization semantics (post-merge):
+
+- When the previously active managed PR is no longer open, orchestrator reads PR state and runs finalization only when merged.
+- Finalization comments use deterministic marker metadata (`simug:issue-finalize:v1`) derived from issue/relation/key/PR for duplicate suppression across restarts.
+- `fixes` relations trigger close-on-merge (if issue is still open); `impacts`/`relates` post informational comments only.
+- Merge finalization applies only to same-authenticated-user authored issues (same-user scope first), then marks each processed linkage as finalized in state.
+
 ## 6. Continuous Monitoring Loop
 
 Loop runs until process cancel (SIGINT/SIGTERM) or hard inconsistency.
@@ -171,7 +178,9 @@ Per cycle:
    - persist heartbeat/paused status and continue polling.
 3. Refresh managed PR set (detect merge/close/delete transitions).
 4. If active PR disappeared:
-   - merged/closed/deleted -> clear active PR state and return to no-PR intake flow.
+   - read PR state;
+   - if merged: run tracked issue finalization (idempotent comment + close-on-merge for `fixes`);
+   - clear active PR state and return to no-PR intake flow.
 5. If in `managed_pr` mode:
    - poll PR comments/reviews since stored cursors,
    - parse `/agent ...` commands with authorization/verb checks,
@@ -378,6 +387,7 @@ After every Codex run:
 7. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
 8. Manager-channel lines are size-limited and sanitized before display/logging.
 9. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.
+10. Merge finalization comments/closures must be idempotent and replay-safe across restart.
 
 Repair is bounded by `max_repair_attempts`. Exceeding bound causes hard failure to avoid infinite loops.
 
@@ -463,6 +473,8 @@ Notes:
 
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
 - `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
+- `issue_links[*].comment_posted` tracks implementation-time issue-update comment application status.
+- `issue_links[*].finalized` tracks merge-finalization completion for each tracked linkage.
 - `paused=true` blocks autonomous loop progression until explicit resume command.
 - `session_strategy` supports future policies such as `fresh_per_task` and `reuse_until_pr_closed`.
 - `last_comment_id` remains for backward compatibility.

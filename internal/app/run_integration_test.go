@@ -427,6 +427,215 @@ func TestRunManagedTickSkipsIssueUpdateOutsideAuthorScope(t *testing.T) {
 	}
 }
 
+func TestRunNoOpenPRFinalizesMergedPRIssueLinks(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "active_pr": 42,
+  "active_branch": "agent/20260307-120000-alpha-task",
+  "mode": "managed_pr",
+  "issue_links": [
+    {
+      "pr_number": 42,
+      "issue_number": 7,
+      "relation": "fixes",
+      "comment_body": "Resolved by merge",
+      "provenance": "run=abc tick=1",
+      "idempotency_key": "fix-key",
+      "recorded_at": "2026-03-08T00:49:00Z",
+      "comment_posted": true,
+      "finalized": false
+    },
+    {
+      "pr_number": 42,
+      "issue_number": 8,
+      "relation": "relates",
+      "comment_body": "Related context",
+      "provenance": "run=abc tick=1",
+      "idempotency_key": "rel-key",
+      "recorded_at": "2026-03-08T00:49:00Z",
+      "comment_posted": true,
+      "finalized": false
+    }
+  ],
+  "updated_at": "2026-03-08T00:49:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	fixesLink := state.IssueLink{
+		PRNumber:       42,
+		IssueNumber:    7,
+		Relation:       "fixes",
+		CommentBody:    "Resolved by merge",
+		IdempotencyKey: "fix-key",
+	}
+	relatesLink := state.IssueLink{
+		PRNumber:       42,
+		IssueNumber:    8,
+		Relation:       "relates",
+		CommentBody:    "Related context",
+		IdempotencyKey: "rel-key",
+	}
+	fixesComment := buildIssueFinalizationCommentBody("example/simug", fixesLink)
+	relatesComment := buildIssueFinalizationCommentBody("example/simug", relatesLink)
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"):                                   `{"number":42,"title":"A","state":"MERGED","headRefName":"agent/20260307-120000-alpha-task","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":"2026-03-08T00:50:00Z"}`,
+		commandKey("gh", "api", "repos/example/simug/issues/7"):                                                                                                   `{"number":7,"title":"tracked","body":"x","state":"OPEN","user":{"login":"alice"}}`,
+		commandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"):                                                                 "[]",
+		commandKey("gh", "issue", "comment", "7", "--body", fixesComment):                                                                                         "",
+		commandKey("gh", "api", "repos/example/simug/issues/7", "--method", "PATCH", "-f", "state=closed"):                                                        "",
+		commandKey("gh", "api", "repos/example/simug/issues/8"):                                                                                                   `{"number":8,"title":"tracked","body":"x","state":"OPEN","user":{"login":"alice"}}`,
+		commandKey("gh", "api", "repos/example/simug/issues/8/comments", "--paginate", "--slurp"):                                                                 "[]",
+		commandKey("gh", "issue", "comment", "8", "--body", relatesComment):                                                                                       "",
+		commandKey("git", "status", "--porcelain"):                                                                                                                "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                                                                                           "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                                                                                    "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):                                                                            "0 0\n",
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"):                                                   `[]`,
+		commandKey("git", "rev-parse", "HEAD"):                                                                                                                    "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		Mode       string `json:"mode"`
+		ActivePR   int    `json:"active_pr"`
+		IssueLinks []struct {
+			IssueNumber int  `json:"issue_number"`
+			Finalized   bool `json:"finalized"`
+		} `json:"issue_links"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.Mode != "issue_triage" {
+		t.Fatalf("mode=%q, want issue_triage", st.Mode)
+	}
+	if st.ActivePR != 0 {
+		t.Fatalf("active_pr=%d, want 0", st.ActivePR)
+	}
+	if len(st.IssueLinks) != 2 || !st.IssueLinks[0].Finalized || !st.IssueLinks[1].Finalized {
+		t.Fatalf("expected merged PR issue links finalized, got %#v", st.IssueLinks)
+	}
+}
+
+func TestRunNoOpenPRMergeFinalizationMarkerSkipsDuplicateCommentButStillCloses(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "active_pr": 42,
+  "active_branch": "agent/20260307-120000-alpha-task",
+  "mode": "managed_pr",
+  "issue_links": [
+    {
+      "pr_number": 42,
+      "issue_number": 7,
+      "relation": "fixes",
+      "comment_body": "Resolved by merge",
+      "provenance": "run=abc tick=1",
+      "idempotency_key": "fix-key",
+      "recorded_at": "2026-03-08T00:49:00Z",
+      "comment_posted": true,
+      "finalized": false
+    }
+  ],
+  "updated_at": "2026-03-08T00:49:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	link := state.IssueLink{
+		PRNumber:       42,
+		IssueNumber:    7,
+		Relation:       "fixes",
+		CommentBody:    "Resolved by merge",
+		IdempotencyKey: "fix-key",
+	}
+	marker := issueFinalizationMarker(link)
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"):                                   `{"number":42,"title":"A","state":"MERGED","headRefName":"agent/20260307-120000-alpha-task","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":"2026-03-08T00:50:00Z"}`,
+		commandKey("gh", "api", "repos/example/simug/issues/7"):                                                                                                   `{"number":7,"title":"tracked","body":"x","state":"OPEN","user":{"login":"alice"}}`,
+		commandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[[` +
+			`{"id":9001,"body":"` + marker + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}` +
+			`]]`,
+		commandKey("gh", "api", "repos/example/simug/issues/7", "--method", "PATCH", "-f", "state=closed"):      "",
+		commandKey("git", "status", "--porcelain"):                                                              "\n",
+		commandKey("git", "fetch", "--prune", "origin"):                                                         "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                                  "main\n",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):                          "0 0\n",
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[]`,
+		commandKey("git", "rev-parse", "HEAD"):                                                                  "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		IssueLinks []struct {
+			Finalized bool `json:"finalized"`
+		} `json:"issue_links"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if len(st.IssueLinks) != 1 || !st.IssueLinks[0].Finalized {
+		t.Fatalf("expected merged PR issue link finalized, got %#v", st.IssueLinks)
+	}
+}
+
 func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)

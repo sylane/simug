@@ -258,6 +258,9 @@ func (o *orchestrator) tick(ctx context.Context) error {
 	}
 
 	if o.state.ActivePR != 0 {
+		if err := o.handleInactiveManagedPR(ctx, o.state.ActivePR); err != nil {
+			return err
+		}
 		fmt.Printf("status: active PR #%d is no longer open; transitioning to next-task bootstrap\n", o.state.ActivePR)
 		o.logEvent("pr_transition", "active PR is no longer open", map[string]any{"active_pr": o.state.ActivePR})
 	}
@@ -358,6 +361,120 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	o.state.LastReviewID = maxInt64(o.state.LastReviewID, poll.MaxReviewID)
 	o.state.CursorUncertain = false
 
+	return nil
+}
+
+func (o *orchestrator) handleInactiveManagedPR(ctx context.Context, prNumber int) error {
+	if prNumber <= 0 {
+		return nil
+	}
+	pr, err := github.GetPR(ctx, o.repoRoot, prNumber)
+	if err != nil {
+		return fmt.Errorf("read inactive PR #%d: %w", prNumber, err)
+	}
+
+	merged := pr.MergedAt != nil || strings.EqualFold(strings.TrimSpace(pr.State), "MERGED")
+	if strings.EqualFold(strings.TrimSpace(pr.State), "OPEN") && !merged {
+		return fmt.Errorf("active PR #%d is still open but missing from authored open-PR set", prNumber)
+	}
+	if !merged {
+		o.logEvent("pr_transition", "inactive PR is not merged; skipping issue finalization", map[string]any{
+			"pr":    pr.Number,
+			"state": pr.State,
+		})
+		return nil
+	}
+
+	o.logEvent("pr_transition", "inactive PR is merged; finalizing tracked issue links", map[string]any{
+		"pr":    pr.Number,
+		"state": pr.State,
+	})
+	return o.processMergedPRIssueFinalization(ctx, pr.Number)
+}
+
+func (o *orchestrator) processMergedPRIssueFinalization(ctx context.Context, prNumber int) error {
+	if prNumber <= 0 {
+		return nil
+	}
+	for i := range o.state.IssueLinks {
+		link := &o.state.IssueLinks[i]
+		if link.PRNumber != prNumber || link.Finalized {
+			continue
+		}
+		if link.IssueNumber <= 0 || strings.TrimSpace(link.IdempotencyKey) == "" {
+			link.Finalized = true
+			continue
+		}
+
+		issue, err := github.GetIssue(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber)
+		if err != nil {
+			return fmt.Errorf("read issue #%d for merged PR #%d finalization: %w", link.IssueNumber, prNumber, err)
+		}
+		if !strings.EqualFold(strings.TrimSpace(issue.Author.Login), strings.TrimSpace(o.user)) {
+			o.logEvent("issue_finalize", "skipping merged-PR finalization for issue outside authenticated-user scope", map[string]any{
+				"pr":           prNumber,
+				"issue":        link.IssueNumber,
+				"issue_author": issue.Author.Login,
+				"user":         o.user,
+				"relation":     link.Relation,
+				"key":          link.IdempotencyKey,
+			})
+			link.Finalized = true
+			continue
+		}
+
+		marker := issueFinalizationMarker(*link)
+		comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber)
+		if err != nil {
+			return fmt.Errorf("list issue comments for finalization marker on issue #%d: %w", link.IssueNumber, err)
+		}
+		hasMarker := false
+		for _, comment := range comments {
+			if comment.User.Login != o.user {
+				continue
+			}
+			if strings.Contains(comment.Body, marker) {
+				hasMarker = true
+				break
+			}
+		}
+
+		if hasMarker {
+			o.logEvent("issue_finalize", "issue finalization marker already present; skipping duplicate finalization comment", map[string]any{
+				"pr":       prNumber,
+				"issue":    link.IssueNumber,
+				"relation": link.Relation,
+				"key":      link.IdempotencyKey,
+				"marker":   marker,
+			})
+		} else {
+			body := buildIssueFinalizationCommentBody(o.repo.FullName(), *link)
+			o.logEvent("issue_finalize", "posting merged-PR issue finalization comment", map[string]any{
+				"pr":       prNumber,
+				"issue":    link.IssueNumber,
+				"relation": link.Relation,
+				"key":      link.IdempotencyKey,
+				"marker":   marker,
+			})
+			if err := github.CommentIssue(ctx, o.repoRoot, link.IssueNumber, limitString(body, 60000)); err != nil {
+				return fmt.Errorf("post merged-PR finalization comment on issue #%d: %w", link.IssueNumber, err)
+			}
+		}
+
+		if strings.EqualFold(strings.TrimSpace(link.Relation), string(agent.IssueRelationFixes)) &&
+			strings.EqualFold(strings.TrimSpace(issue.State), "OPEN") {
+			o.logEvent("issue_finalize", "closing issue after merged PR fixed relation", map[string]any{
+				"pr":    prNumber,
+				"issue": link.IssueNumber,
+				"key":   link.IdempotencyKey,
+			})
+			if err := github.CloseIssue(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber); err != nil {
+				return fmt.Errorf("close issue #%d after merged PR finalization: %w", link.IssueNumber, err)
+			}
+		}
+
+		link.Finalized = true
+	}
 	return nil
 }
 
@@ -991,6 +1108,16 @@ func issueUpdateMarker(link state.IssueLink) string {
 	)
 }
 
+func issueFinalizationMarker(link state.IssueLink) string {
+	return fmt.Sprintf(
+		"<!-- simug:issue-finalize:v1 issue=%d relation=%s key=%s pr=%d -->",
+		link.IssueNumber,
+		strings.TrimSpace(link.Relation),
+		strings.TrimSpace(link.IdempotencyKey),
+		link.PRNumber,
+	)
+}
+
 func buildIssueUpdateCommentBody(repoFullName string, link state.IssueLink, taskID string) string {
 	prURL := fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, link.PRNumber)
 	var b strings.Builder
@@ -1002,6 +1129,28 @@ func buildIssueUpdateCommentBody(repoFullName string, link state.IssueLink, task
 	b.WriteString(fmt.Sprintf("- PR: #%d (%s)\n", link.PRNumber, prURL))
 	if strings.TrimSpace(taskID) != "" {
 		b.WriteString(fmt.Sprintf("- Task context: Task %s\n", strings.TrimSpace(taskID)))
+	}
+	b.WriteString("\n")
+	b.WriteString("Context:\n")
+	b.WriteString(strings.TrimSpace(link.CommentBody))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func buildIssueFinalizationCommentBody(repoFullName string, link state.IssueLink) string {
+	prURL := fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, link.PRNumber)
+	relation := strings.TrimSpace(link.Relation)
+	var b strings.Builder
+	b.WriteString(issueFinalizationMarker(link))
+	b.WriteString("\n")
+	b.WriteString("### simug merged PR issue finalization\n")
+	b.WriteString(fmt.Sprintf("- Issue: #%d\n", link.IssueNumber))
+	b.WriteString(fmt.Sprintf("- Relation: %s\n", relation))
+	b.WriteString(fmt.Sprintf("- PR: #%d (%s)\n", link.PRNumber, prURL))
+	if strings.EqualFold(relation, string(agent.IssueRelationFixes)) {
+		b.WriteString("- Outcome: closing issue because this PR is marked as a fix\n")
+	} else {
+		b.WriteString("- Outcome: informational update only (issue remains open)\n")
 	}
 	b.WriteString("\n")
 	b.WriteString("Context:\n")

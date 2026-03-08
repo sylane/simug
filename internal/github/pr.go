@@ -252,6 +252,12 @@ func CommentIssue(ctx context.Context, repoRoot string, number int, body string)
 	return err
 }
 
+func CloseIssue(ctx context.Context, repoRoot, repoFullName string, number int) error {
+	path := fmt.Sprintf("repos/%s/issues/%d", repoFullName, number)
+	_, err := run(ctx, repoRoot, "gh", "api", path, "--method", "PATCH", "-f", "state=closed")
+	return err
+}
+
 func GetIssue(ctx context.Context, repoRoot, repoFullName string, number int) (Issue, error) {
 	path := fmt.Sprintf("repos/%s/issues/%d", repoFullName, number)
 	out, err := run(ctx, repoRoot, "gh", "api", path)

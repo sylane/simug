@@ -174,3 +174,15 @@ func TestGetIssueParsesResponse(t *testing.T) {
 		t.Fatalf("unexpected issue: %#v", issue)
 	}
 }
+
+func TestCloseIssueUsesGhAPI(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh api repos/example/simug/issues/7 --method PATCH -f state=closed": "",
+	}}
+	restore := SetCommandRunnerForTest(r)
+	defer restore()
+
+	if err := CloseIssue(context.Background(), "/tmp", "example/simug", 7); err != nil {
+		t.Fatalf("CloseIssue returned error: %v", err)
+	}
+}
