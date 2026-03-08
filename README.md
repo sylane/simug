@@ -248,6 +248,12 @@ scripts/canary-real-codex-protocol.sh --cmd "codex" --out .simug/canary/real-cod
 
 This runs `TestRealCodexProtocolConformanceCanary` with real runtime prompts and archives per-scenario artifacts (`prompt.txt`, `raw_output.txt`, `result.json`) under the chosen output directory.
 
+To validate repair/restart boundaries with real Codex runtime:
+
+```bash
+scripts/canary-real-codex-recovery.sh --cmd "codex" --out .simug/canary/real-codex
+```
+
 What it does per iteration:
 
 - rebuilds `bin/simug`,

@@ -37,6 +37,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added deterministic restart recovery state machine (`resume`/`replay`/`repair`/`abort`) that consumes persisted attempt journals, records `last_recovery`, and fail-closes on dirty/inconsistent recovery invariants.
 - Added failure-injection integration coverage for startup recovery transitions, fetch-origin failures in no-PR intake, and merged-finalization close-issue failures.
 - Added real-Codex protocol conformance canary harness (`TestRealCodexProtocolConformanceCanary`) plus `scripts/canary-real-codex-protocol.sh` for repeatable runtime validation with archived artifacts.
+- Added real-Codex repair/restart canary harness (`TestRealCodexRepairInteractionCanary`, `TestRealCodexRestartRecoveryBoundaryCanary`) plus `scripts/canary-real-codex-recovery.sh`.
 
 ### Changed
 

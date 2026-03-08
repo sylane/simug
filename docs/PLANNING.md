@@ -221,12 +221,12 @@ Execution note:
   - Scope: run scripted canary scenarios against a real Codex runtime (not shell fixtures) to validate protocol parseability, channel prefix discipline, terminal-action cardinality, and malformed/partial output handling under managed/triage/bootstrap prompts.
   - Done when: canary provides repeatable pass/fail results with archived prompt/output artifacts for debugging failures.
 
-- [ ] **Task 6.5b: Real Codex repair/restart interaction canary**
+- [x] **Task 6.5b: Real Codex repair/restart interaction canary**
   - Scope: execute real Codex runs that intentionally trigger repair paths and one-shot restart/resume boundaries, validating orchestrator recovery semantics with live agent behavior and artifact continuity from 6.5a canary roots.
   - Done when: repair/restart behavior with real Codex is reproducibly validated across scripted interruption scenarios.
 
 - [ ] **Task 6.5c: Real Codex validation gate integration**
-  - Scope: integrate real Codex canaries into operator/release workflow (manual gate and/or scheduled gate) with clear prerequisites, cost/runtime expectations, and artifact retention.
+  - Scope: integrate real Codex canaries into operator/release workflow (manual gate and/or scheduled gate) with clear prerequisites, cost/runtime expectations, and artifact retention, including protocol + recovery canary runners.
   - Done when: release readiness requires recent successful real Codex validation evidence.
 
 - [ ] **Task 6.6: Live GitHub + real Codex dry-run on a sandbox repo**
