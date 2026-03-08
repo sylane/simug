@@ -303,7 +303,7 @@ Execution note:
   - Scope: require a structured terminal report (summary + commit evidence + branch identity) and validate commit movement before orchestrator push/PR creation.
   - Done when: orchestrator never attempts PR creation without validated report payload and verified commit advancement.
 
-- [ ] **Task 7.2e: Attempt-level observability and forensic artifacts**
+- [x] **Task 7.2e: Attempt-level observability and forensic artifacts**
   - Scope: persist parsed protocol excerpts, terminal-detection diagnostics, and rollout/session references in per-attempt archives and `explain-last-failure` output.
   - Done when: every failed attempt has actionable non-empty forensic artifacts explaining why validation failed.
 

@@ -1054,10 +1054,13 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 	}
 
 	var meta struct {
-		RunID          string `json:"run_id"`
-		TickSeq        int64  `json:"tick_seq"`
-		Attempt        int    `json:"attempt"`
-		ExpectedBranch string `json:"expected_branch"`
+		RunID                  string   `json:"run_id"`
+		TickSeq                int64    `json:"tick_seq"`
+		Attempt                int      `json:"attempt"`
+		ExpectedBranch         string   `json:"expected_branch"`
+		ProtocolActionCount    int      `json:"protocol_action_count"`
+		ProtocolTerminalCount  int      `json:"protocol_terminal_count"`
+		ProtocolActionsExcerpt []string `json:"protocol_actions_excerpt"`
 	}
 	metaData, err := os.ReadFile(metadataPath)
 	if err != nil {
@@ -1071,6 +1074,12 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 	}
 	if meta.ExpectedBranch != branch {
 		t.Fatalf("metadata expected branch=%q, want %q", meta.ExpectedBranch, branch)
+	}
+	if meta.ProtocolActionCount == 0 || meta.ProtocolTerminalCount == 0 {
+		t.Fatalf("metadata protocol diagnostics missing counts: %#v", meta)
+	}
+	if len(meta.ProtocolActionsExcerpt) == 0 {
+		t.Fatalf("metadata protocol diagnostics missing excerpt: %#v", meta)
 	}
 }
 

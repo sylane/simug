@@ -33,7 +33,7 @@ The objective is implementable with the current architecture:
 Current implementation still has known gaps relative to target design:
 
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Attempt-level forensic enrichment and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
+- Same-session continuity across staged bootstrap turns is still pending (tracked in planning).
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -614,14 +614,14 @@ High-fidelity trace coverage:
 - each Codex attempt is archived under `.simug/archive/agent/<run_id>/tick-<tick_seq>/attempt-<n>/` with:
   - `prompt.txt` (exact prompt input),
   - `raw_output.txt` (raw agent stdout payload),
-  - `metadata.json` (attempt/run/tick/branch/error correlation fields).
+  - `metadata.json` (attempt/run/tick/branch/error correlation fields plus protocol action excerpts, terminal diagnostics, and rollout/session path references when detected).
 
 This enables deterministic reconstruction of a failed run without rerunning the worker.
 
 Operator failure explainer flow:
 
 - `simug explain-last-failure` reads latest failed `tick_end` event, related failed `invariant_decision`, and linked archive metadata.
-- Output includes failure reason, violated invariant, relevant branch/error context, and suggested next action.
+- Output includes failure reason, violated invariant, relevant branch/error context, protocol/terminal diagnostics, rollout/session references (when present), and suggested next action.
 
 ## 15. Open Extensions
 

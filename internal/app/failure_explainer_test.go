@@ -46,9 +46,19 @@ func TestExplainLastFailureFromRepoIncludesArchiveAndSuggestion(t *testing.T) {
 		t.Fatalf("mkdir archive dir: %v", err)
 	}
 	meta := map[string]any{
-		"expected_branch":  "agent/20260307-123000-next-task",
-		"agent_error":      "",
-		"validation_error": "checkout mismatch for PR #42",
+		"expected_branch":         "agent/20260307-123000-next-task",
+		"agent_error":             "",
+		"validation_error":        "checkout mismatch for PR #42",
+		"protocol_action_count":   3,
+		"protocol_terminal_count": 1,
+		"protocol_terminal_types": []string{"done"},
+		"protocol_actions_excerpt": []string{
+			"comment:note",
+			"done:changes=true:implemented",
+		},
+		"protocol_parser_hint": "agent protocol requires exactly one terminal action",
+		"rollout_refs":         []string{"/home/sebastien/.codex/sessions/abc/rollout-2026-03-08.jsonl"},
+		"session_refs":         []string{"/home/sebastien/.codex/sessions/abc"},
 	}
 	metaJSON, _ := json.Marshal(meta)
 	if err := os.WriteFile(archiveMetaPath, append(metaJSON, '\n'), 0o644); err != nil {
@@ -98,6 +108,9 @@ func TestExplainLastFailureFromRepoIncludesArchiveAndSuggestion(t *testing.T) {
 		"tick_seq: 1",
 		"violated_invariant: checkout mismatch for PR #42",
 		"expected_branch: agent/20260307-123000-next-task",
+		"protocol_action_count: 3",
+		"protocol_terminal_types: done",
+		"rollout_refs: /home/sebastien/.codex/sessions/abc/rollout-2026-03-08.jsonl",
 		"suggested_next_action: checkout",
 	}
 	for _, needle := range required {

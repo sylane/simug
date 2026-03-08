@@ -20,9 +20,16 @@ type loggedEvent struct {
 }
 
 type archivedMetadata struct {
-	ExpectedBranch  string `json:"expected_branch"`
-	AgentError      string `json:"agent_error"`
-	ValidationError string `json:"validation_error"`
+	ExpectedBranch         string   `json:"expected_branch"`
+	AgentError             string   `json:"agent_error"`
+	ValidationError        string   `json:"validation_error"`
+	ProtocolActionCount    int      `json:"protocol_action_count"`
+	ProtocolActionsExcerpt []string `json:"protocol_actions_excerpt"`
+	ProtocolTerminalCount  int      `json:"protocol_terminal_count"`
+	ProtocolTerminalTypes  []string `json:"protocol_terminal_types"`
+	ProtocolParserHint     string   `json:"protocol_parser_hint"`
+	RolloutRefs            []string `json:"rollout_refs"`
+	SessionRefs            []string `json:"session_refs"`
 }
 
 // ExplainLastFailure summarizes the most recent failed tick.
@@ -127,6 +134,27 @@ func explainLastFailureFromRepo(repoRoot string) (string, error) {
 	}
 	if archiveMeta.ValidationError != "" {
 		b.WriteString(fmt.Sprintf("- validation_error: %s\n", archiveMeta.ValidationError))
+	}
+	if archiveMeta.ProtocolActionCount > 0 {
+		b.WriteString(fmt.Sprintf("- protocol_action_count: %d\n", archiveMeta.ProtocolActionCount))
+	}
+	if archiveMeta.ProtocolTerminalCount > 0 {
+		b.WriteString(fmt.Sprintf("- protocol_terminal_count: %d\n", archiveMeta.ProtocolTerminalCount))
+	}
+	if len(archiveMeta.ProtocolTerminalTypes) > 0 {
+		b.WriteString(fmt.Sprintf("- protocol_terminal_types: %s\n", strings.Join(archiveMeta.ProtocolTerminalTypes, ",")))
+	}
+	if len(archiveMeta.ProtocolActionsExcerpt) > 0 {
+		b.WriteString(fmt.Sprintf("- protocol_actions_excerpt: %s\n", strings.Join(archiveMeta.ProtocolActionsExcerpt, " | ")))
+	}
+	if archiveMeta.ProtocolParserHint != "" {
+		b.WriteString(fmt.Sprintf("- protocol_parser_hint: %s\n", archiveMeta.ProtocolParserHint))
+	}
+	if len(archiveMeta.RolloutRefs) > 0 {
+		b.WriteString(fmt.Sprintf("- rollout_refs: %s\n", strings.Join(archiveMeta.RolloutRefs, ",")))
+	}
+	if len(archiveMeta.SessionRefs) > 0 {
+		b.WriteString(fmt.Sprintf("- session_refs: %s\n", strings.Join(archiveMeta.SessionRefs, ",")))
 	}
 	b.WriteString(fmt.Sprintf("- suggested_next_action: %s", suggestion))
 	return b.String(), nil

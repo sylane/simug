@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 
 	"simug/internal/agent"
 	"simug/internal/git"
@@ -760,6 +761,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		result, err := o.runner.Run(ctx, currentPrompt)
 		if err != nil {
 			rawOutput := agent.RawOutputFromError(err)
+			diagnostics := buildAttemptArchiveDiagnostics(rawOutput, nil, err, nil)
 			if journalErr := o.recordInFlightAttemptResult(attempt+1, "", "", err.Error(), ""); journalErr != nil {
 				return agent.Result{}, "", journalErr
 			}
@@ -775,6 +777,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 				false,
 				err.Error(),
 				"",
+				diagnostics,
 			)
 			if archiveErr != nil {
 				o.logEvent("agent_archive_error", "failed to archive codex attempt", map[string]any{
@@ -842,6 +845,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, string(result.Terminal.Type), "", errorText(validationErr)); journalErr != nil {
 			return agent.Result{}, "", journalErr
 		}
+		diagnostics := buildAttemptArchiveDiagnostics(result.RawOutput, &result, nil, validationErr)
 		paths, archiveErr := o.archiveAgentAttempt(
 			attempt+1,
 			o.cfg.MaxRepairAttempts+1,
@@ -854,6 +858,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 			result.Terminal.Changes,
 			"",
 			errorText(validationErr),
+			diagnostics,
 		)
 		if archiveErr != nil {
 			o.logEvent("agent_archive_error", "failed to archive codex attempt", map[string]any{
@@ -2120,6 +2125,107 @@ func normalizePRMetadata(done agent.Action) (string, string) {
 		}
 	}
 	return title, body
+}
+
+func buildAttemptArchiveDiagnostics(rawOutput string, result *agent.Result, runErr error, validationErr error) attemptArchiveDiagnostics {
+	diagnostics := attemptArchiveDiagnostics{}
+	diagnostics.RolloutRefs, diagnostics.SessionRefs = extractCodexPathReferences(rawOutput)
+
+	rawProtocolLines := collectRawProtocolLines(rawOutput)
+	diagnostics.RawLineCount = len(rawProtocolLines)
+	if result == nil {
+		for _, line := range rawProtocolLines {
+			switch {
+			case strings.Contains(line, `"action":"done"`):
+				diagnostics.TerminalCount++
+				diagnostics.TerminalTypes = append(diagnostics.TerminalTypes, "done")
+			case strings.Contains(line, `"action":"idle"`):
+				diagnostics.TerminalCount++
+				diagnostics.TerminalTypes = append(diagnostics.TerminalTypes, "idle")
+			}
+			if len(diagnostics.ActionsExcerpt) < 8 {
+				diagnostics.ActionsExcerpt = append(diagnostics.ActionsExcerpt, limitString(line, 220))
+			}
+		}
+		diagnostics.ActionCount = len(rawProtocolLines)
+		if runErr != nil {
+			diagnostics.ParserHint = limitString(strings.TrimSpace(runErr.Error()), 600)
+		}
+		return diagnostics
+	}
+
+	diagnostics.ActionCount = len(result.Actions)
+	diagnostics.ManagerMessages = len(result.ManagerMessages)
+	diagnostics.Quarantined = len(result.QuarantinedLines)
+	for _, action := range result.Actions {
+		actionType := strings.TrimSpace(string(action.Type))
+		if actionType != "" {
+			diagnostics.ActionTypes = append(diagnostics.ActionTypes, actionType)
+		}
+		if action.Type == agent.ActionDone || action.Type == agent.ActionIdle {
+			diagnostics.TerminalCount++
+			diagnostics.TerminalTypes = append(diagnostics.TerminalTypes, actionType)
+		}
+		if len(diagnostics.ActionsExcerpt) < 8 {
+			diagnostics.ActionsExcerpt = append(diagnostics.ActionsExcerpt, summarizeProtocolAction(action))
+		}
+	}
+	if validationErr != nil {
+		diagnostics.ParserHint = limitString(strings.TrimSpace(validationErr.Error()), 600)
+	}
+	return diagnostics
+}
+
+func summarizeProtocolAction(action agent.Action) string {
+	switch action.Type {
+	case agent.ActionComment:
+		return fmt.Sprintf("comment:%s", limitString(strings.TrimSpace(action.Body), 120))
+	case agent.ActionReply:
+		return fmt.Sprintf("reply:%d:%s", action.CommentID, limitString(strings.TrimSpace(action.Body), 120))
+	case agent.ActionIssueReport:
+		return fmt.Sprintf("issue_report:%d:needs_task=%t", action.IssueNumber, action.NeedsTask)
+	case agent.ActionIssueUpdate:
+		return fmt.Sprintf("issue_update:%d:%s", action.IssueNumber, strings.TrimSpace(string(action.Relation)))
+	case agent.ActionDone:
+		return fmt.Sprintf("done:changes=%t:%s", action.Changes, limitString(strings.TrimSpace(action.Summary), 120))
+	case agent.ActionIdle:
+		return fmt.Sprintf("idle:%s", limitString(strings.TrimSpace(action.Reason), 120))
+	default:
+		return string(action.Type)
+	}
+}
+
+func collectRawProtocolLines(rawOutput string) []string {
+	lines := strings.Split(rawOutput, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "SIMUG:") {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func extractCodexPathReferences(rawOutput string) ([]string, []string) {
+	rolloutSet := map[string]struct{}{}
+	sessionSet := map[string]struct{}{}
+	tokens := strings.FieldsFunc(rawOutput, func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(`"'()[]{}<>,;`, r)
+	})
+	for _, token := range tokens {
+		trimmed := strings.TrimSpace(token)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "/sessions/") {
+			sessionSet[trimmed] = struct{}{}
+		}
+		if strings.Contains(trimmed, "rollout-") && strings.HasSuffix(trimmed, ".jsonl") && strings.Contains(trimmed, "/") {
+			rolloutSet[trimmed] = struct{}{}
+		}
+	}
+	return sortedKeys(rolloutSet), sortedKeys(sessionSet)
 }
 
 func loadConfig() (config, error) {

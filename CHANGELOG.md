@@ -58,6 +58,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added agent parser tests covering template-echo filtering and runner-level mixed-output handling.
 - Added bootstrap execution report gate requiring exactly one `REPORT_JSON` comment with task/summary/branch/head evidence before push/PR creation.
 - Added execution-report validation and prompt-contract tests, plus action filtering so internal report comments are not posted to created PRs.
+- Added enriched attempt archive metadata with protocol action counts/types/excerpts, terminal diagnostics, parser hints, and detected rollout/session path references.
+- Added diagnostics coverage for archive metadata enrichment and updated failure explainer output to surface protocol and rollout/session forensic context.
 
 ### Changed
 
