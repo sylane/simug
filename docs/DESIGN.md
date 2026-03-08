@@ -151,6 +151,12 @@ After issue triage, implementation-mode runs should support explicit issue linka
 - Orchestrator persists PR-scoped issue linkage state across restarts.
 - When the managed PR is detected merged, orchestrator comments and closes only issues marked as fixed; impacted/related issues remain open with informational comments only.
 
+Issue update comment semantics (implementation-time):
+
+- Orchestrator posts issue updates only for issues authored by the authenticated user (same-user scope first policy).
+- Posted comments include deterministic marker metadata (`simug:issue-update:v1`) derived from issue/relation/key/PR for duplicate suppression.
+- Marker presence from same user is treated as already-posted and updates state idempotently without posting duplicates.
+
 ## 6. Continuous Monitoring Loop
 
 Loop runs until process cancel (SIGINT/SIGTERM) or hard inconsistency.
@@ -371,6 +377,7 @@ After every Codex run:
    - `needs_task=true` requires non-empty task proposal metadata.
 7. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
 8. Manager-channel lines are size-limited and sanitized before display/logging.
+9. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.
 
 Repair is bounded by `max_repair_attempts`. Exceeding bound causes hard failure to avoid infinite loops.
 

@@ -158,3 +158,19 @@ func TestCommentIssueUsesGhIssueComment(t *testing.T) {
 		t.Fatalf("CommentIssue returned error: %v", err)
 	}
 }
+
+func TestGetIssueParsesResponse(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh api repos/example/simug/issues/7": `{"number":7,"title":"Issue","body":"Body","state":"OPEN","user":{"login":"alice"}}`,
+	}}
+	restore := SetCommandRunnerForTest(r)
+	defer restore()
+
+	issue, err := GetIssue(context.Background(), "/tmp", "example/simug", 7)
+	if err != nil {
+		t.Fatalf("GetIssue returned error: %v", err)
+	}
+	if issue.Number != 7 || issue.Author.Login != "alice" {
+		t.Fatalf("unexpected issue: %#v", issue)
+	}
+}

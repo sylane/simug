@@ -252,6 +252,19 @@ func CommentIssue(ctx context.Context, repoRoot string, number int, body string)
 	return err
 }
 
+func GetIssue(ctx context.Context, repoRoot, repoFullName string, number int) (Issue, error) {
+	path := fmt.Sprintf("repos/%s/issues/%d", repoFullName, number)
+	out, err := run(ctx, repoRoot, "gh", "api", path)
+	if err != nil {
+		return Issue{}, err
+	}
+	var issue Issue
+	if err := json.Unmarshal([]byte(out), &issue); err != nil {
+		return Issue{}, fmt.Errorf("decode issue: %w", err)
+	}
+	return issue, nil
+}
+
 func ReplyToReviewComment(ctx context.Context, repoRoot, repoFullName string, commentID int64, body string) error {
 	path := fmt.Sprintf("repos/%s/pulls/comments/%d/replies", repoFullName, commentID)
 	_, err := run(ctx, repoRoot, "gh", "api", path, "--method", "POST", "-f", "body="+body)

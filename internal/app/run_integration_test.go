@@ -13,6 +13,7 @@ import (
 	"simug/internal/agent"
 	"simug/internal/git"
 	"simug/internal/github"
+	"simug/internal/state"
 )
 
 type mockCommandRunner struct {
@@ -171,6 +172,21 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
+	issueAction := agent.Action{
+		Type:        agent.ActionIssueUpdate,
+		IssueNumber: 7,
+		Relation:    agent.IssueRelationFixes,
+		CommentBody: "Implemented via this PR",
+	}
+	key := issueUpdateIdempotencyKey(42, issueAction)
+	linkForComment := state.IssueLink{
+		PRNumber:       42,
+		IssueNumber:    7,
+		Relation:       "fixes",
+		CommentBody:    "Implemented via this PR",
+		IdempotencyKey: key,
+	}
+	expectedIssueComment := buildIssueUpdateCommentBody("example/simug", linkForComment, "")
 	runner := mockCommandRunner{responses: map[string]string{
 		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
 		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
@@ -187,6 +203,9 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"please handle issue linkage","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
 		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
 		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+		commandKey("gh", "api", "repos/example/simug/issues/7"):                                    `{"number":7,"title":"tracked","body":"x","state":"OPEN","user":{"login":"alice"}}`,
+		commandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "issue", "comment", "7", "--body", expectedIssueComment):                  "",
 	}}
 
 	restoreGit := git.SetCommandRunnerForTest(runner)
@@ -212,6 +231,7 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 			Relation       string `json:"relation"`
 			CommentBody    string `json:"comment_body"`
 			IdempotencyKey string `json:"idempotency_key"`
+			CommentPosted  bool   `json:"comment_posted"`
 		} `json:"issue_links"`
 	}
 	if err := json.Unmarshal(stateData, &st); err != nil {
@@ -226,6 +246,184 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 	}
 	if strings.TrimSpace(link.CommentBody) == "" || strings.TrimSpace(link.IdempotencyKey) == "" {
 		t.Fatalf("expected comment_body and idempotency_key to be populated: %#v", link)
+	}
+	if !link.CommentPosted {
+		t.Fatalf("expected issue link to be marked comment_posted: %#v", link)
+	}
+}
+
+func TestRunManagedTickMarksIssueUpdatePostedWhenMarkerAlreadyExists(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "active_pr": 42,
+  "active_branch": "agent/20260307-120000-alpha-task",
+  "mode": "managed_pr",
+  "issue_links": [
+    {
+      "pr_number": 42,
+      "issue_number": 7,
+      "relation": "fixes",
+      "comment_body": "Implemented via this PR",
+      "provenance": "run=abc tick=1",
+      "idempotency_key": "abc123",
+      "recorded_at": "2026-03-08T00:49:00Z",
+      "comment_posted": false,
+      "finalized": false
+    }
+  ],
+  "updated_at": "2026-03-08T00:49:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	branch := "agent/20260307-120000-alpha-task"
+	link := state.IssueLink{
+		PRNumber:       42,
+		IssueNumber:    7,
+		Relation:       "fixes",
+		CommentBody:    "Implemented via this PR",
+		IdempotencyKey: "abc123",
+	}
+	marker := issueUpdateMarker(link)
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"tick","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+		commandKey("gh", "api", "repos/example/simug/issues/7"):                                    `{"number":7,"title":"tracked","body":"x","state":"OPEN","user":{"login":"alice"}}`,
+		commandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[[` +
+			`{"id":9001,"body":"` + marker + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}` +
+			`]]`,
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		IssueLinks []struct {
+			CommentPosted bool `json:"comment_posted"`
+		} `json:"issue_links"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if len(st.IssueLinks) != 1 || !st.IssueLinks[0].CommentPosted {
+		t.Fatalf("expected issue link marked as comment_posted, got %#v", st.IssueLinks)
+	}
+}
+
+func TestRunManagedTickSkipsIssueUpdateOutsideAuthorScope(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "active_pr": 42,
+  "active_branch": "agent/20260307-120000-alpha-task",
+  "mode": "managed_pr",
+  "issue_links": [
+    {
+      "pr_number": 42,
+      "issue_number": 7,
+      "relation": "impacts",
+      "comment_body": "Could impact this issue",
+      "provenance": "run=abc tick=1",
+      "idempotency_key": "scope-check",
+      "recorded_at": "2026-03-08T00:49:00Z",
+      "comment_posted": false,
+      "finalized": false
+    }
+  ],
+  "updated_at": "2026-03-08T00:49:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"tick","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+		commandKey("gh", "api", "repos/example/simug/issues/7"):                                    `{"number":7,"title":"tracked","body":"x","state":"OPEN","user":{"login":"mallory"}}`,
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		IssueLinks []struct {
+			CommentPosted bool `json:"comment_posted"`
+		} `json:"issue_links"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if len(st.IssueLinks) != 1 || st.IssueLinks[0].CommentPosted {
+		t.Fatalf("expected issue link to remain unposted for out-of-scope issue, got %#v", st.IssueLinks)
 	}
 }
 

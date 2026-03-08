@@ -180,7 +180,7 @@ Design sync gate for this realignment queue (`7.1`, `7.2`, `7.3`, `5.9`-`5.13`):
   - Scope: persist per-active-PR issue linkage metadata (candidate fixed issues, impacted issues, comment intents, provenance) with restart-safe idempotency keys.
   - Done when: stop/restart never loses which issues are associated with the active PR and pending issue-side actions, and `docs/DESIGN.md` state schema reflects the new fields.
 
-- [ ] **Task 5.11: Orchestrator-owned issue updates during development**
+- [x] **Task 5.11: Orchestrator-owned issue updates during development**
   - Scope: apply validated issue-update intents as orchestrator comments on issues (same authenticated-user scope first), including references to planning/task context and deterministic dedupe markers.
   - Done when: Codex can surface relevant issue impact/fix context and orchestrator posts it idempotently, and `docs/DESIGN.md` documents comment semantics/idempotency markers.
 

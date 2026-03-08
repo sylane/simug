@@ -349,6 +349,9 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	if err := o.applyActions(ctx, pr.Number, result.Actions, poll); err != nil {
 		return err
 	}
+	if err := o.processPendingIssueUpdateComments(ctx, pr.Number); err != nil {
+		return err
+	}
 
 	o.state.LastIssueCommentID = maxInt64(o.state.LastIssueCommentID, poll.MaxIssueID)
 	o.state.LastReviewCommentID = maxInt64(o.state.LastReviewCommentID, poll.MaxReviewComID)
@@ -517,6 +520,9 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	emptyPoll := eventPoll{IssueByID: map[int64]event{}, ReviewByID: map[int64]event{}}
 	if err := o.applyActions(ctx, prNumber, result.Actions, emptyPoll); err != nil {
+		return err
+	}
+	if err := o.processPendingIssueUpdateComments(ctx, prNumber); err != nil {
 		return err
 	}
 
@@ -900,6 +906,107 @@ func buildIssuePRBacklinkCommentBody(repoFullName string, issueNumber int, taskI
 	b.WriteString(fmt.Sprintf("- Issue: #%d\n", issueNumber))
 	b.WriteString(fmt.Sprintf("- Task: Task %s\n", strings.TrimSpace(taskID)))
 	b.WriteString(fmt.Sprintf("- PR: #%d (%s)\n", prNumber, url))
+	return b.String()
+}
+
+func (o *orchestrator) processPendingIssueUpdateComments(ctx context.Context, prNumber int) error {
+	if prNumber <= 0 {
+		return nil
+	}
+	for i := range o.state.IssueLinks {
+		link := &o.state.IssueLinks[i]
+		if link.PRNumber != prNumber || link.CommentPosted {
+			continue
+		}
+		if link.IssueNumber <= 0 || strings.TrimSpace(link.IdempotencyKey) == "" {
+			continue
+		}
+
+		issue, err := github.GetIssue(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber)
+		if err != nil {
+			return fmt.Errorf("read issue #%d for issue update intent: %w", link.IssueNumber, err)
+		}
+		if !strings.EqualFold(strings.TrimSpace(issue.Author.Login), strings.TrimSpace(o.user)) {
+			o.logEvent("issue_update_comment", "skipping issue update for issue outside authenticated-user scope", map[string]any{
+				"pr":           prNumber,
+				"issue":        link.IssueNumber,
+				"issue_author": issue.Author.Login,
+				"user":         o.user,
+				"relation":     link.Relation,
+				"key":          link.IdempotencyKey,
+			})
+			continue
+		}
+
+		marker := issueUpdateMarker(*link)
+		comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber)
+		if err != nil {
+			return fmt.Errorf("list comments for issue update marker on issue #%d: %w", link.IssueNumber, err)
+		}
+		exists := false
+		for _, comment := range comments {
+			if comment.User.Login != o.user {
+				continue
+			}
+			if strings.Contains(comment.Body, marker) {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			link.CommentPosted = true
+			o.logEvent("issue_update_comment", "issue update marker already present; marking as posted", map[string]any{
+				"pr":       prNumber,
+				"issue":    link.IssueNumber,
+				"relation": link.Relation,
+				"key":      link.IdempotencyKey,
+				"marker":   marker,
+			})
+			continue
+		}
+
+		body := buildIssueUpdateCommentBody(o.repo.FullName(), *link, o.state.PendingTaskID)
+		o.logEvent("issue_update_comment", "posting issue update comment from tracked linkage intent", map[string]any{
+			"pr":       prNumber,
+			"issue":    link.IssueNumber,
+			"relation": link.Relation,
+			"key":      link.IdempotencyKey,
+			"marker":   marker,
+		})
+		if err := github.CommentIssue(ctx, o.repoRoot, link.IssueNumber, limitString(body, 60000)); err != nil {
+			return fmt.Errorf("post issue update comment on issue #%d: %w", link.IssueNumber, err)
+		}
+		link.CommentPosted = true
+	}
+	return nil
+}
+
+func issueUpdateMarker(link state.IssueLink) string {
+	return fmt.Sprintf(
+		"<!-- simug:issue-update:v1 issue=%d relation=%s key=%s pr=%d -->",
+		link.IssueNumber,
+		strings.TrimSpace(link.Relation),
+		strings.TrimSpace(link.IdempotencyKey),
+		link.PRNumber,
+	)
+}
+
+func buildIssueUpdateCommentBody(repoFullName string, link state.IssueLink, taskID string) string {
+	prURL := fmt.Sprintf("https://github.com/%s/pull/%d", repoFullName, link.PRNumber)
+	var b strings.Builder
+	b.WriteString(issueUpdateMarker(link))
+	b.WriteString("\n")
+	b.WriteString("### simug issue linkage update\n")
+	b.WriteString(fmt.Sprintf("- Issue: #%d\n", link.IssueNumber))
+	b.WriteString(fmt.Sprintf("- Relation: %s\n", strings.TrimSpace(link.Relation)))
+	b.WriteString(fmt.Sprintf("- PR: #%d (%s)\n", link.PRNumber, prURL))
+	if strings.TrimSpace(taskID) != "" {
+		b.WriteString(fmt.Sprintf("- Task context: Task %s\n", strings.TrimSpace(taskID)))
+	}
+	b.WriteString("\n")
+	b.WriteString("Context:\n")
+	b.WriteString(strings.TrimSpace(link.CommentBody))
+	b.WriteString("\n")
 	return b.String()
 }
 

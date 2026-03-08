@@ -30,6 +30,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added `scripts/self-host-loop.sh` wrapper to rebuild/run one-shot iterations, snapshot `.simug/state.json`, and capture per-iteration logs under `.simug/selfhost/<timestamp>/`.
 - Added protocol support for `issue_update` actions so Codex can declare implementation-time issue linkage intents (`fixes`/`impacts`/`relates`) in machine-parseable form for orchestrator processing.
 - Added PR-scoped issue linkage ledger persistence in `.simug/state.json` (`issue_links`) with deterministic idempotency keys so restart/retry preserves issue intent context.
+- Added orchestrator-owned implementation-time issue update comments from tracked issue linkage intents, with same-user scope checks and deterministic marker-based duplicate suppression.
 
 ### Changed
 
