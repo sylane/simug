@@ -33,7 +33,7 @@ The objective is implementable with the current architecture:
 Current implementation still has known gaps relative to target design:
 
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Parser echo hardening and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
+- Post-execution report gating and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -364,7 +364,8 @@ Rules:
 
 - Exactly one terminal action (`done` or `idle`) must be emitted.
 - Non-terminal actions may appear before terminal action.
-- If raw runtime output repeats an identical full protocol sequence (for example transcript echo from `codex exec`), orchestrator collapses duplicates to the final identical sequence; distinct multiple terminal sequences still fail.
+- If raw runtime output repeats an identical full protocol sequence (for example transcript echo from `codex exec`), orchestrator collapses duplicates to the final identical sequence.
+- If prompt-template protocol example sequences are echoed alongside a distinct non-template sequence, orchestrator filters template sequences before terminal-action validation.
 - In `issue_triage` mode, exactly one `issue_report` must be emitted before terminal action.
 - Every manager-facing message must use `SIMUG_MANAGER:` prefix.
 - Unprefixed free text is treated as diagnostic noise, not routed to manager.

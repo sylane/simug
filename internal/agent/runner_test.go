@@ -63,6 +63,23 @@ func TestParseRoutedOutputRejectsManagerPrefixAbuseSpacing(t *testing.T) {
 	}
 }
 
+func TestParseRoutedOutputIgnoresPromptTemplateProtocolLines(t *testing.T) {
+	out, err := parseRoutedOutput(strings.Join([]string{
+		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}`,
+		`SIMUG: {"action":"done","summary":"real result","changes":false}`,
+	}, "\n"))
+	if err != nil {
+		t.Fatalf("parseRoutedOutput returned error: %v", err)
+	}
+	out.Actions = removePromptTemplateEchoSequences(out.Actions)
+	if len(out.Actions) != 1 {
+		t.Fatalf("expected 1 parsed action after filtering template line, got %d", len(out.Actions))
+	}
+	if out.Actions[0].Summary != "real result" {
+		t.Fatalf("unexpected action summary: %#v", out.Actions[0])
+	}
+}
+
 func TestParseActionJSONDone(t *testing.T) {
 	a, err := parseActionJSON(`{"action":"done","summary":"ok","changes":true,"pr_title":"Title","pr_body":"Body"}`)
 	if err != nil {
@@ -213,5 +230,25 @@ func TestRunnerRunAcceptsValidProtocolDespiteNonZeroExit(t *testing.T) {
 	}
 	if result.Terminal.Type != ActionDone {
 		t.Fatalf("terminal=%q, want %q", result.Terminal.Type, ActionDone)
+	}
+}
+
+func TestRunnerRunIgnoresEchoedTemplateProtocolBlock(t *testing.T) {
+	r := Runner{Command: `printf '%s\n' \
+'SIMUG: {"action":"comment","body":"..."}' \
+'SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}' \
+'SIMUG: {"action":"idle","reason":"..."}' \
+'SIMUG: {"action":"comment","body":"final update"}' \
+'SIMUG: {"action":"done","summary":"real done","changes":false}'`}
+
+	result, err := r.Run(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.Actions) != 2 {
+		t.Fatalf("actions=%d, want 2 after filtering echoed template block", len(result.Actions))
+	}
+	if result.Terminal.Type != ActionDone || result.Terminal.Summary != "real done" {
+		t.Fatalf("unexpected terminal: %#v", result.Terminal)
 	}
 }

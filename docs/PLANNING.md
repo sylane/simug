@@ -295,7 +295,7 @@ Execution note:
   - Scope: bind execution/repair prompts to the approved intent and reject drift (task switching, unrelated planning edits, extra `[IN_PROGRESS]` mutations) during repair loops.
   - Done when: protocol/invariant repair attempts are constrained to the same approved task scope and cannot silently advance to a different task.
 
-- [ ] **Task 7.2c: Protocol parser hardening against prompt/template echoes**
+- [x] **Task 7.2c: Protocol parser hardening against prompt/template echoes**
   - Scope: harden protocol ingestion so template/example `SIMUG:` lines echoed from prompts/transcripts are ignored, and only canonical agent-emitted actions contribute to terminal-action cardinality checks.
   - Done when: known repros with echoed protocol examples no longer cause false multi-terminal failures.
 

@@ -104,6 +104,7 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 	raw := string(out)
 	parsed, parseErr := parseRoutedOutput(raw)
 	if parseErr == nil {
+		parsed.Actions = removePromptTemplateEchoSequences(parsed.Actions)
 		parsed.Actions = collapseDuplicateTerminalSequences(parsed.Actions)
 	}
 
@@ -188,15 +189,41 @@ func parseRoutedOutput(raw string) (parsedOutput, error) {
 	return out, nil
 }
 
-func collapseDuplicateTerminalSequences(actions []Action) []Action {
+func removePromptTemplateEchoSequences(actions []Action) []Action {
+	sequences, complete := splitTerminalSequences(actions)
+	if !complete || len(sequences) < 2 {
+		return actions
+	}
+
+	keep := make([][]Action, 0, len(sequences))
+	removedTemplate := false
+	for _, sequence := range sequences {
+		if isPromptTemplateSequence(sequence) {
+			removedTemplate = true
+			continue
+		}
+		keep = append(keep, sequence)
+	}
+	if !removedTemplate || len(keep) == 0 {
+		return actions
+	}
+
+	filtered := make([]Action, 0, len(actions))
+	for _, sequence := range keep {
+		filtered = append(filtered, sequence...)
+	}
+	return filtered
+}
+
+func splitTerminalSequences(actions []Action) ([][]Action, bool) {
 	terminalIndexes := make([]int, 0, 2)
 	for i, a := range actions {
 		if a.Type == ActionDone || a.Type == ActionIdle {
 			terminalIndexes = append(terminalIndexes, i)
 		}
 	}
-	if len(terminalIndexes) < 2 {
-		return actions
+	if len(terminalIndexes) == 0 {
+		return nil, false
 	}
 
 	sequences := make([][]Action, 0, len(terminalIndexes))
@@ -207,7 +234,58 @@ func collapseDuplicateTerminalSequences(actions []Action) []Action {
 		sequences = append(sequences, sequence)
 		start = terminalIndex + 1
 	}
-	if start != len(actions) {
+	return sequences, start == len(actions)
+}
+
+func isPromptTemplateSequence(sequence []Action) bool {
+	if len(sequence) == 0 {
+		return false
+	}
+	for _, action := range sequence {
+		if !isPromptTemplateAction(action) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPromptTemplateAction(action Action) bool {
+	switch action.Type {
+	case ActionComment:
+		return action.Body == "..." ||
+			action.Body == `INTENT_JSON:{"task_ref":"Task 7.2a","summary":"...","branch_slug":"intent-handshake","pr_title":"...","pr_body":"...","checks":["GOCACHE=/tmp/go-build go test ./..."]}`
+	case ActionReply:
+		return action.CommentID == 123 && action.Body == "..."
+	case ActionIssueReport:
+		return action.IssueNumber == 123 &&
+			action.Relevant &&
+			action.Analysis == "..." &&
+			action.NeedsTask &&
+			action.TaskTitle == "..." &&
+			action.TaskBody == "..."
+	case ActionIssueUpdate:
+		return action.IssueNumber == 123 &&
+			(action.Relation == IssueRelationFixes || action.Relation == IssueRelationImpacts || action.Relation == IssueRelationRelates) &&
+			(action.CommentBody == "Task implementation covers this issue because ..." ||
+				action.CommentBody == "This task has direct impact on this issue because ..." ||
+				action.CommentBody == "This work affects this issue because ...")
+	case ActionDone:
+		if action.Summary == "..." && action.Changes &&
+			(action.PRTitle == "" || action.PRTitle == "optional") &&
+			(action.PRBody == "" || action.PRBody == "optional") {
+			return true
+		}
+		return !action.Changes && (action.Summary == "issue triaged" || action.Summary == "intent prepared")
+	case ActionIdle:
+		return action.Reason == "..." || action.Reason == "no task available"
+	default:
+		return false
+	}
+}
+
+func collapseDuplicateTerminalSequences(actions []Action) []Action {
+	sequences, complete := splitTerminalSequences(actions)
+	if !complete || len(sequences) < 2 {
 		return actions
 	}
 

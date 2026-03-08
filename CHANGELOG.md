@@ -54,6 +54,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added bootstrap intent parsing/validation unit tests and updated integration coverage for deterministic issue selection and pending-task targeting under staged intent flow.
 - Added execution scope-lock enforcement for staged bootstrap runs, including planning-status drift checks on non-target tasks and `[IN_PROGRESS]` cardinality/target validation.
 - Added scope-lock repair prompt constraints and unit coverage for task-ref parsing, planning-status lock validation, and scope-constrained repair instructions.
+- Added protocol parser hardening to filter prompt-template `SIMUG:` action sequences when echoed alongside real agent output, preventing false multi-terminal failures.
+- Added agent parser tests covering template-echo filtering and runner-level mixed-output handling.
 
 ### Changed
 
