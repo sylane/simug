@@ -30,6 +30,7 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 		Repo:          "owner/repo",
 		ActivePR:      42,
 		ActiveBranch:  "agent/20260307-120000-next-task",
+		ActiveTaskRef: "Task 7.2a",
 		Mode:          ModeManagedPR,
 		ActiveIssue:   0,
 		PendingTaskID: "",
@@ -90,7 +91,7 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	if got.Repo != want.Repo || got.ActivePR != want.ActivePR || got.ActiveBranch != want.ActiveBranch || got.Mode != want.Mode {
+	if got.Repo != want.Repo || got.ActivePR != want.ActivePR || got.ActiveBranch != want.ActiveBranch || got.ActiveTaskRef != want.ActiveTaskRef || got.Mode != want.Mode {
 		t.Fatalf("round trip mismatch: got=%#v want=%#v", got, want)
 	}
 	if got.LastCommentID != want.LastCommentID || got.LastIssueCommentID != want.LastIssueCommentID || got.LastReviewCommentID != want.LastReviewCommentID || got.LastReviewID != want.LastReviewID {
@@ -116,6 +117,7 @@ func TestNormalizeInfersManagedPRModeAndClearsIssueFields(t *testing.T) {
 		Mode:               ModeIssueTriage,
 		ActiveIssue:        99,
 		PendingTaskID:      "task-5.9",
+		IssueTaskIntent:    &IssueTaskIntent{IssueNumber: 99, TaskTitle: "x", TaskBody: "y"},
 		BootstrapSessionID: "session-123",
 		BootstrapIntent: &BootstrapIntent{
 			TaskRef:    "Task 7.2a",
@@ -131,8 +133,8 @@ func TestNormalizeInfersManagedPRModeAndClearsIssueFields(t *testing.T) {
 	if st.Mode != ModeManagedPR {
 		t.Fatalf("mode=%q, want %q", st.Mode, ModeManagedPR)
 	}
-	if st.ActiveIssue != 0 || st.PendingTaskID != "" || st.BootstrapIntent != nil || st.BootstrapSessionID != "" {
-		t.Fatalf("expected managed mode to clear issue metadata/intent/session, got issue=%d task=%q intent=%#v session=%q", st.ActiveIssue, st.PendingTaskID, st.BootstrapIntent, st.BootstrapSessionID)
+	if st.ActiveIssue != 0 || st.PendingTaskID != "" || st.IssueTaskIntent != nil || st.BootstrapIntent != nil || st.BootstrapSessionID != "" {
+		t.Fatalf("expected managed mode to clear issue metadata/intent/session, got issue=%d task=%q issue_task_intent=%#v intent=%#v session=%q", st.ActiveIssue, st.PendingTaskID, st.IssueTaskIntent, st.BootstrapIntent, st.BootstrapSessionID)
 	}
 }
 
@@ -179,6 +181,34 @@ func TestNormalizeDropsInvalidBootstrapIntent(t *testing.T) {
 	}
 	if st.BootstrapSessionID != "" {
 		t.Fatalf("expected invalid bootstrap intent to clear bootstrap session id, got %q", st.BootstrapSessionID)
+	}
+}
+
+func TestNormalizeDropsInvalidIssueTaskIntent(t *testing.T) {
+	st := &State{
+		Mode: ModeIssueTriage,
+		IssueTaskIntent: &IssueTaskIntent{
+			IssueNumber: 4,
+			TaskTitle:   "",
+			TaskBody:    "body",
+		},
+	}
+
+	st.Normalize()
+	if st.IssueTaskIntent != nil {
+		t.Fatalf("expected invalid issue_task_intent to be removed, got %#v", st.IssueTaskIntent)
+	}
+}
+
+func TestNormalizeClearsActiveTaskRefWithoutActivePR(t *testing.T) {
+	st := &State{
+		Mode:          ModeIssueTriage,
+		ActiveTaskRef: "Task 7.2a",
+	}
+
+	st.Normalize()
+	if st.ActiveTaskRef != "" {
+		t.Fatalf("expected active_task_ref cleared without active PR, got %q", st.ActiveTaskRef)
 	}
 }
 

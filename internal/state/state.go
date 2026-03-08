@@ -23,9 +23,11 @@ type State struct {
 	Repo                string           `json:"repo"`
 	ActivePR            int              `json:"active_pr"`
 	ActiveBranch        string           `json:"active_branch"`
+	ActiveTaskRef       string           `json:"active_task_ref,omitempty"`
 	Mode                Mode             `json:"mode"`
 	ActiveIssue         int              `json:"active_issue"`
-	PendingTaskID       string           `json:"pending_task_id"`
+	PendingTaskID       string           `json:"pending_task_id"` // Legacy field retained for migration compatibility.
+	IssueTaskIntent     *IssueTaskIntent `json:"issue_task_intent,omitempty"`
 	BootstrapIntent     *BootstrapIntent `json:"bootstrap_intent,omitempty"`
 	BootstrapSessionID  string           `json:"bootstrap_session_id,omitempty"`
 	IssueLinks          []IssueLink      `json:"issue_links,omitempty"`
@@ -93,6 +95,13 @@ type BootstrapIntent struct {
 	PRBody     string    `json:"pr_body"`
 	Checks     []string  `json:"checks,omitempty"`
 	ApprovedAt time.Time `json:"approved_at"`
+}
+
+type IssueTaskIntent struct {
+	IssueNumber int       `json:"issue_number"`
+	TaskTitle   string    `json:"task_title"`
+	TaskBody    string    `json:"task_body"`
+	RecordedAt  time.Time `json:"recorded_at"`
 }
 
 type IssueLink struct {
@@ -170,6 +179,7 @@ func (s *State) Normalize() {
 	if s.Mode == ModeManagedPR {
 		s.ActiveIssue = 0
 		s.PendingTaskID = ""
+		s.IssueTaskIntent = nil
 		s.BootstrapIntent = nil
 		s.BootstrapSessionID = ""
 	}
@@ -177,6 +187,19 @@ func (s *State) Normalize() {
 	if s.Mode == ModeIssueTriage && s.ActivePR == 0 {
 		s.BootstrapIntent = nil
 		s.BootstrapSessionID = ""
+	}
+
+	if s.ActivePR == 0 {
+		s.ActiveTaskRef = ""
+	}
+
+	if s.IssueTaskIntent != nil {
+		intent := s.IssueTaskIntent
+		if intent.IssueNumber <= 0 ||
+			strings.TrimSpace(intent.TaskTitle) == "" ||
+			strings.TrimSpace(intent.TaskBody) == "" {
+			s.IssueTaskIntent = nil
+		}
 	}
 
 	if s.Mode == ModeTaskBootstrap && s.BootstrapIntent == nil {

@@ -75,6 +75,7 @@ Enforced by orchestrator:
 - no direct push/PR mutation by Codex,
 - clean working tree at terminal action,
 - commit movement consistency (`changes=true` implies new commit; `idle` implies no commit change),
+- issue-derived intake handoff persistence (`issue_task_intent` from triage -> approved `task_ref` intent -> issue/PR task-context backlink),
 - bounded repair attempts with explicit diagnostics.
 
 Required process for Codex during self-hosted development:

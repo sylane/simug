@@ -75,7 +75,7 @@ func TestMaybePostIssueDerivedPRBacklinkPostsComment(t *testing.T) {
 		},
 	}
 
-	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "", 123)
+	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "5.4a", 123)
 	runner := githubOnlyMockRunner{responses: map[string]string{
 		githubCommandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[]`,
 		githubCommandKey("gh", "issue", "comment", "7", "--body", body):                                 "",
@@ -83,7 +83,7 @@ func TestMaybePostIssueDerivedPRBacklinkPostsComment(t *testing.T) {
 	restore := github.SetCommandRunnerForTest(runner)
 	defer restore()
 
-	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123); err != nil {
+	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123, 7, "5.4a"); err != nil {
 		t.Fatalf("maybePostIssueDerivedPRBacklink returned error: %v", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestMaybePostIssueDerivedPRBacklinkSkipsDuplicateMarker(t *testing.T) {
 	restore := github.SetCommandRunnerForTest(runner)
 	defer restore()
 
-	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123); err != nil {
+	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123, 7, ""); err != nil {
 		t.Fatalf("maybePostIssueDerivedPRBacklink returned error: %v", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestMaybePostIssueDerivedPRBacklinkIgnoresMarkerFromOtherAuthor(t *testing.
 	restore := github.SetCommandRunnerForTest(runner)
 	defer restore()
 
-	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123); err != nil {
+	if err := o.maybePostIssueDerivedPRBacklink(context.Background(), 123, 7, ""); err != nil {
 		t.Fatalf("maybePostIssueDerivedPRBacklink returned error: %v", err)
 	}
 }

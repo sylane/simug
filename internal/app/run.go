@@ -267,9 +267,13 @@ func (o *orchestrator) tick(ctx context.Context) error {
 				"to":   string(state.ModeManagedPR),
 			})
 		}
+		if o.state.ActivePR != 0 && o.state.ActivePR != pr.Number {
+			o.state.ActiveTaskRef = ""
+		}
 		o.state.Mode = state.ModeManagedPR
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
+		o.state.IssueTaskIntent = nil
 		o.state.BootstrapSessionID = ""
 		return o.handleManagedPR(ctx, pr.Number)
 	}
@@ -283,6 +287,7 @@ func (o *orchestrator) tick(ctx context.Context) error {
 	}
 	o.state.ActivePR = 0
 	o.state.ActiveBranch = ""
+	o.state.ActiveTaskRef = ""
 	if o.state.Mode == state.ModeManagedPR {
 		o.logEvent("mode_transition", "managed PR closed, entering issue_triage mode", map[string]any{
 			"from": string(state.ModeManagedPR),
@@ -504,6 +509,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			"to":   string(state.ModeIssueTriage),
 		})
 		o.state.Mode = state.ModeIssueTriage
+		o.state.IssueTaskIntent = nil
 		o.state.BootstrapIntent = nil
 		o.state.BootstrapSessionID = ""
 	}
@@ -512,13 +518,23 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		return err
 	}
 
-	if o.state.Mode == state.ModeIssueTriage && strings.TrimSpace(o.state.PendingTaskID) != "" {
-		o.logEvent("mode_transition", "pending issue-derived task exists; skipping issue triage", map[string]any{
-			"from":            string(state.ModeIssueTriage),
-			"to":              string(state.ModeTaskBootstrap),
-			"pending_task_id": o.state.PendingTaskID,
-		})
-		o.state.Mode = state.ModeTaskBootstrap
+	if o.state.Mode == state.ModeIssueTriage {
+		legacyPendingTaskID := strings.TrimSpace(o.state.PendingTaskID)
+		if o.state.IssueTaskIntent != nil || legacyPendingTaskID != "" {
+			fields := map[string]any{
+				"from": string(state.ModeIssueTriage),
+				"to":   string(state.ModeTaskBootstrap),
+			}
+			if o.state.IssueTaskIntent != nil {
+				fields["issue"] = o.state.IssueTaskIntent.IssueNumber
+				fields["task_title"] = limitString(strings.TrimSpace(o.state.IssueTaskIntent.TaskTitle), 200)
+			}
+			if legacyPendingTaskID != "" {
+				fields["pending_task_id"] = legacyPendingTaskID
+			}
+			o.logEvent("mode_transition", "issue-derived bootstrap context exists; skipping issue triage", fields)
+			o.state.Mode = state.ModeTaskBootstrap
+		}
 	}
 
 	if o.state.Mode == state.ModeIssueTriage {
@@ -528,6 +544,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		}
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
+		o.state.IssueTaskIntent = nil
 		o.state.BootstrapIntent = nil
 		o.state.BootstrapSessionID = ""
 		var selected *github.Issue
@@ -577,7 +594,14 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 				return err
 			}
 			o.state.PendingTaskID = ""
+			o.state.IssueTaskIntent = nil
 			if report.NeedsTask {
+				o.state.IssueTaskIntent = &state.IssueTaskIntent{
+					IssueNumber: report.IssueNumber,
+					TaskTitle:   strings.TrimSpace(report.TaskTitle),
+					TaskBody:    strings.TrimSpace(report.TaskBody),
+					RecordedAt:  time.Now().UTC(),
+				}
 				o.logEvent("issue_task_intent", "accepted issue-derived task intent without orchestrator project-file mutation", map[string]any{
 					"issue":      report.IssueNumber,
 					"task_title": limitString(strings.TrimSpace(report.TaskTitle), 200),
@@ -603,7 +627,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		}
 
 		var approved state.BootstrapIntent
-		intentPrompt := o.buildBootstrapIntentPrompt(o.state.PendingTaskID, "")
+		intentPrompt := o.buildBootstrapIntentPrompt(o.state.IssueTaskIntent, o.state.PendingTaskID, "")
 		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, o.state.BootstrapSessionID, func(result agent.Result, _, _ string) error {
 			intent, validateErr := o.validateBootstrapIntentResult(result, o.state.PendingTaskID)
 			if validateErr != nil {
@@ -621,8 +645,10 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			o.logEvent("agent_idle", "bootstrap intent returned idle", map[string]any{"reason": strings.TrimSpace(intentResult.Terminal.Reason)})
 			o.state.ActivePR = 0
 			o.state.ActiveBranch = ""
+			o.state.ActiveTaskRef = ""
 			o.state.ActiveIssue = 0
 			o.state.PendingTaskID = ""
+			o.state.IssueTaskIntent = nil
 			o.state.BootstrapIntent = nil
 			o.state.BootstrapSessionID = ""
 			o.state.Mode = state.ModeIssueTriage
@@ -633,6 +659,11 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		}
 
 		o.state.BootstrapIntent = &approved
+		if taskID, err := parseTaskIDFromRef(approved.TaskRef); err == nil {
+			o.state.PendingTaskID = taskID
+		} else {
+			o.state.PendingTaskID = ""
+		}
 		if observedSessionID := extractCodexSessionIDFromRawOutput(intentResult.RawOutput); observedSessionID != "" {
 			o.state.BootstrapSessionID = observedSessionID
 			o.logEvent("bootstrap_session", "captured codex session id during intent turn", map[string]any{
@@ -698,8 +729,10 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		o.logEvent("agent_idle", "bootstrap execution returned idle", map[string]any{"reason": strings.TrimSpace(result.Terminal.Reason)})
 		o.state.ActivePR = 0
 		o.state.ActiveBranch = ""
+		o.state.ActiveTaskRef = ""
 		o.state.ActiveIssue = 0
 		o.state.PendingTaskID = ""
+		o.state.IssueTaskIntent = nil
 		o.state.BootstrapIntent = nil
 		o.state.BootstrapSessionID = ""
 		o.state.Mode = state.ModeIssueTriage
@@ -737,17 +770,16 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create pull request: %w", err)
 	}
-	if err := o.maybePostIssueDerivedPRBacklink(ctx, prNumber); err != nil {
+	taskIDForBacklink, _ := parseTaskIDFromRef(intent.TaskRef)
+	if err := o.maybePostIssueDerivedPRBacklink(ctx, prNumber, o.state.ActiveIssue, taskIDForBacklink); err != nil {
 		return err
 	}
 
 	o.state.ActivePR = prNumber
 	o.state.ActiveBranch = expectedBranch
+	o.state.ActiveTaskRef = intent.TaskRef
 	o.state.Mode = state.ModeManagedPR
 	o.state.ActiveIssue = 0
-	o.state.PendingTaskID = ""
-	o.state.BootstrapIntent = nil
-	o.state.BootstrapSessionID = ""
 	fmt.Printf("status: created managed PR #%d (%s)\n", prNumber, expectedBranch)
 	o.logEvent("pr_created", "managed pull request created", map[string]any{"pr": prNumber, "branch": expectedBranch})
 
@@ -758,6 +790,11 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	if err := o.processPendingIssueUpdateComments(ctx, prNumber); err != nil {
 		return err
 	}
+
+	o.state.PendingTaskID = ""
+	o.state.IssueTaskIntent = nil
+	o.state.BootstrapIntent = nil
+	o.state.BootstrapSessionID = ""
 
 	return nil
 }
@@ -1116,9 +1153,8 @@ func buildIssueTriageCommentBody(report agent.Action) string {
 	return b.String()
 }
 
-func (o *orchestrator) maybePostIssueDerivedPRBacklink(ctx context.Context, prNumber int) error {
-	issueNumber := o.state.ActiveIssue
-	taskID := strings.TrimSpace(o.state.PendingTaskID)
+func (o *orchestrator) maybePostIssueDerivedPRBacklink(ctx context.Context, prNumber int, issueNumber int, taskID string) error {
+	taskID = strings.TrimSpace(taskID)
 	if issueNumber <= 0 {
 		return nil
 	}
@@ -1233,7 +1269,7 @@ func (o *orchestrator) processPendingIssueUpdateComments(ctx context.Context, pr
 			continue
 		}
 
-		body := buildIssueUpdateCommentBody(o.repo.FullName(), *link, o.state.PendingTaskID)
+		body := buildIssueUpdateCommentBody(o.repo.FullName(), *link, o.currentTaskContextID())
 		o.logEvent("issue_update_comment", "posting issue update comment from tracked linkage intent", map[string]any{
 			"pr":       prNumber,
 			"issue":    link.IssueNumber,
@@ -1267,6 +1303,18 @@ func issueFinalizationMarker(link state.IssueLink) string {
 		strings.TrimSpace(link.IdempotencyKey),
 		link.PRNumber,
 	)
+}
+
+func (o *orchestrator) currentTaskContextID() string {
+	if taskRef := strings.TrimSpace(o.state.ActiveTaskRef); taskRef != "" {
+		if taskID, err := parseTaskIDFromRef(taskRef); err == nil {
+			return taskID
+		}
+	}
+	if taskID := strings.TrimSpace(o.state.PendingTaskID); taskID != "" {
+		return taskID
+	}
+	return ""
 }
 
 func buildIssueUpdateCommentBody(repoFullName string, link state.IssueLink, taskID string) string {
@@ -1686,7 +1734,7 @@ func (o *orchestrator) buildIssueTriagePrompt(issue github.Issue, repairInstruct
 	return b.String()
 }
 
-func (o *orchestrator) buildBootstrapIntentPrompt(pendingTaskID, repairInstruction string) string {
+func (o *orchestrator) buildBootstrapIntentPrompt(issueTaskIntent *state.IssueTaskIntent, pendingTaskID, repairInstruction string) string {
 	var b strings.Builder
 	b.WriteString("You are Codex running under simug orchestration.\n")
 	b.WriteString("No managed open PR currently exists. This turn is INTENT-ONLY planning; do not modify files.\n")
@@ -1694,8 +1742,15 @@ func (o *orchestrator) buildBootstrapIntentPrompt(pendingTaskID, repairInstructi
 	b.WriteString("- Stay on main and do not create/switch branches in this turn.\n")
 	b.WriteString("- Do NOT edit files. Do NOT commit. Do NOT push. Do NOT create PR.\n")
 	b.WriteString("- Evaluate docs/PLANNING.md and docs/WORKFLOW.md to select the next task scope.\n")
+	if issueTaskIntent != nil {
+		b.WriteString(fmt.Sprintf("- Issue-derived intake context is active: issue #%d.\n", issueTaskIntent.IssueNumber))
+		b.WriteString(fmt.Sprintf("- Issue-derived proposed task title: %s\n", limitString(strings.TrimSpace(issueTaskIntent.TaskTitle), 200)))
+		b.WriteString(fmt.Sprintf("- Issue-derived proposed task body:\n%s\n", limitString(strings.TrimSpace(issueTaskIntent.TaskBody), 2000)))
+		b.WriteString("- Select a concrete canonical Task <id> reference for this issue in INTENT_JSON task_ref.\n")
+		b.WriteString("- Do not perform issue triage again in this turn; prepare execution intent only.\n")
+	}
 	if strings.TrimSpace(pendingTaskID) != "" {
-		b.WriteString(fmt.Sprintf("- Prioritize pending issue-derived task context: Task %s.\n", strings.TrimSpace(pendingTaskID)))
+		b.WriteString(fmt.Sprintf("- Legacy pending task hint: prioritize Task %s.\n", strings.TrimSpace(pendingTaskID)))
 	}
 	b.WriteString("- Emit exactly one intent comment and one terminal action.\n")
 	b.WriteString("- Intent comment body must start with INTENT_JSON: followed by compact JSON.\n")

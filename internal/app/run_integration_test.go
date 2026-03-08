@@ -1781,7 +1781,7 @@ func TestRunMergeFinalizationFailsWhenCloseIssueFails(t *testing.T) {
 
 func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Prioritize pending issue-derived task context: Task 5.4a."; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 5.4a\\\",\\\"summary\\\":\\\"bootstrap pending task\\\",\\\"branch_slug\\\":\\\"task-5-4a\\\",\\\"pr_title\\\":\\\"feat: task 5.4a\\\",\\\"pr_body\\\":\\\"Implements Task 5.4a\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"missing pending task target"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Legacy pending task hint: prioritize Task 5.4a."; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 5.4a\\\",\\\"summary\\\":\\\"bootstrap pending task\\\",\\\"branch_slug\\\":\\\"task-5-4a\\\",\\\"pr_title\\\":\\\"feat: task 5.4a\\\",\\\"pr_body\\\":\\\"Implements Task 5.4a\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"missing pending task target"}\n'; fi`)
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -1857,7 +1857,7 @@ func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 
 func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; elif printf '%s' "$input" | grep -q "INTENT-ONLY planning"; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 7.2a\\\",\\\"summary\\\":\\\"bootstrap after triage\\\",\\\"branch_slug\\\":\\\"bootstrap-after-triage\\\",\\\"pr_title\\\":\\\"feat: bootstrap after triage\\\",\\\"pr_body\\\":\\\"Implements planned task\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; elif printf '%s' "$input" | grep -q "Issue-derived intake context is active: issue #4."; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 7.2a\\\",\\\"summary\\\":\\\"bootstrap after triage\\\",\\\"branch_slug\\\":\\\"bootstrap-after-triage\\\",\\\"pr_title\\\":\\\"feat: bootstrap after triage\\\",\\\"pr_body\\\":\\\"Implements planned task\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
 
 	tmp := t.TempDir()
 	report := agent.Action{
@@ -1918,8 +1918,8 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	if st.ActiveIssue != 4 {
 		t.Fatalf("active_issue=%d, want 4", st.ActiveIssue)
 	}
-	if st.PendingTaskID != "" {
-		t.Fatalf("pending_task_id=%q, want empty", st.PendingTaskID)
+	if st.PendingTaskID != "7.2a" {
+		t.Fatalf("pending_task_id=%q, want 7.2a", st.PendingTaskID)
 	}
 	if st.BootstrapIntent == nil {
 		t.Fatalf("bootstrap_intent=nil, want persisted intent")

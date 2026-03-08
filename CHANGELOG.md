@@ -62,6 +62,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added diagnostics coverage for archive metadata enrichment and updated failure explainer output to surface protocol and rollout/session forensic context.
 - Added staged bootstrap session continuity support with persisted `bootstrap_session_id` state and codex resume command selection (`codex exec resume <id> -`) when available.
 - Added session continuity helpers/tests for resume command construction, session-id extraction from artifacts, and bootstrap-session state normalization semantics.
+- Added explicit issue-task bootstrap handoff state (`issue_task_intent`) plus active PR task context tracking (`active_task_ref`) so issue-derived triage intent survives to bootstrap/PR linkage without orchestrator planning-file mutation.
 
 ### Changed
 
@@ -79,3 +80,4 @@ https://keepachangelog.com/en/1.1.0/
 - Moved operational runbooks from `docs/` to `docs/runbooks/` and updated project references so top-level docs remain focused on design/planning/workflow guidance.
 - Changed no-PR bootstrap orchestration from single-turn execution to a two-stage contract (`intent` tick, then `execution` tick) with explicit commit/no-commit invariants per stage.
 - Tightened bootstrap intent contract so `task_ref` must include canonical `Task <id>` for deterministic scope locking during execution/repair attempts.
+- Updated issue-derived bootstrap prompting/backlink semantics so triaged issue task proposals are injected into intent context, approved intent `task_ref` drives downstream task metadata, and issue backlink/comments use validated task context.

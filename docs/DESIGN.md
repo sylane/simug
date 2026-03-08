@@ -119,14 +119,15 @@ When no managed open PR exists:
    - require exactly one `issue_report` protocol action,
    - orchestrator posts issue analysis comment based on report.
 6. If `issue_report.needs_task == true`:
-   - orchestrator records issue-task intent in state/bootstrap context,
+   - orchestrator records explicit `issue_task_intent` in worker state (`issue_number`, `task_title`, `task_body`, `recorded_at`),
    - orchestrator does not parse or edit planning/workflow files directly,
    - Codex performs repo-specific planning/task-file updates through normal commits when needed.
 7. In `task_bootstrap` mode with no approved intent, run an intent-only planning turn:
    - Codex must stay on `main`,
    - no file edits/commits/branch switching,
+   - if `issue_task_intent` is present, prompt must include that triage context and require Codex to choose a canonical `Task <id>` for execution intent,
    - protocol must emit exactly one intent `comment` (`INTENT_JSON:{...}`) plus terminal `done` (`changes=false`) or terminal `idle`.
-8. Validate and persist approved bootstrap intent (`task_ref`, `summary`, `branch_slug`, `pr_title`, `pr_body`, optional `checks`) in worker state as `bootstrap_intent`.
+8. Validate and persist approved bootstrap intent (`task_ref`, `summary`, `branch_slug`, `pr_title`, `pr_body`, optional `checks`) in worker state as `bootstrap_intent`; derive legacy-compatible `pending_task_id` from approved `task_ref` for downstream task-context metadata.
 9. Capture and persist staged bootstrap session identity (`bootstrap_session_id`) when available from Codex runtime artifacts.
 9. In `task_bootstrap` mode with approved intent, run execution turn:
    - Codex must execute the approved task scope,
@@ -140,14 +141,14 @@ When no managed open PR exists:
    - structured execution report payload (`REPORT_JSON`) matches approved task/branch/post-run head,
    - observed session id (when emitted) matches persisted `bootstrap_session_id`.
 11. Orchestrator pushes branch and creates PR assigned to self.
-12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR and resulting work trace.
+12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR plus task context (`Task <id>` from approved intent).
 13. Store new PR as active and begin monitoring.
 
 If no authored open issues exist, bootstrap the next work item from project guidance (for example planning/workflow docs when present).
 
 Codex can propose PR title/body through protocol; orchestrator uses those when creating the PR.
 
-Implementation note: issue-first mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, orchestrator-owned triage comments, and issue-to-PR backlink comments are active and restart-safe. Orchestrator runtime no longer mutates project planning/workflow/source files directly; repository content updates remain Codex-authored through normal commits.
+Implementation note: issue-first mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, explicit `issue_task_intent` handoff, and issue-to-PR backlink comments with approved task context are active and restart-safe. Orchestrator runtime no longer mutates project planning/workflow/source files directly; repository content updates remain Codex-authored through normal commits.
 
 ### 5.1 Ownership Boundary Status
 
@@ -249,13 +250,16 @@ This section defines the concrete simug <-> Codex interactions by use case.
    - non-empty `analysis`,
    - `needs_task=true` has required task metadata.
 5. Simug posts orchestrator-owned triage analysis comment (idempotent marker).
-6. Simug records triage result in state and transitions to `task_bootstrap`.
+6. Simug records triage result in state:
+   - `needs_task=true` -> persist `issue_task_intent`,
+   - `needs_task=false` -> clear any prior issue-task bootstrap context.
+7. Simug transitions to `task_bootstrap`.
 
 #### D. No-PR work bootstrap (`task_bootstrap`)
 
 1. Simug runs intent-only bootstrap prompt when `bootstrap_intent` is empty.
 2. Intent turn requires no repository mutations and exactly one `INTENT_JSON` comment plus terminal action.
-3. Simug validates intent payload, persists approved `bootstrap_intent`, captures `bootstrap_session_id` when available, then exits tick without push/PR side effects.
+3. Simug validates intent payload, persists approved `bootstrap_intent`, derives `pending_task_id` from approved `task_ref` for task-context metadata, captures `bootstrap_session_id` when available, then exits tick without push/PR side effects.
 4. Next `task_bootstrap` tick runs execution prompt bound to approved intent (task scope + branch slug + PR draft metadata), resuming `bootstrap_session_id` when available.
 5. Simug validates terminal action + repo invariants:
    - expected branch policy for approved intent branch,
@@ -266,7 +270,7 @@ This section defines the concrete simug <-> Codex interactions by use case.
 6. If valid, simug performs orchestrator-owned remote mutations:
    - push branch,
    - create PR,
-   - if issue-derived, add issue -> PR backlink comment.
+   - if issue-derived, add issue -> PR backlink comment including task context from approved intent.
 7. Simug stores `active_pr`/`active_branch`, clears `bootstrap_intent`, and transitions back to `managed_pr`.
 
 #### E. Repair and failure path (all modes)
@@ -498,6 +502,7 @@ Schema (v2):
   "repo": "owner/name",
   "active_pr": 123,
   "active_branch": "agent/20260307-141530-fix-review-timeouts",
+  "active_task_ref": "Task 7.2",
   "mode": "managed_pr",
   "active_issue": 0,
   "pending_task_id": "",
@@ -567,7 +572,10 @@ Schema (v2):
 Notes:
 
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
+- `active_task_ref` stores the approved `Task <id>` reference for the currently managed PR lane when known.
+- `issue_task_intent` is optional issue-derived bootstrap context captured from validated triage (`issue_number`, `task_title`, `task_body`, `recorded_at`).
 - `bootstrap_intent` persists approved staged-bootstrap intent between the read-only intent turn and the execution turn.
+- `pending_task_id` is retained as a legacy compatibility field and is derived from approved bootstrap `task_ref` for task-context metadata.
 - `bootstrap_session_id` stores detected Codex session identity for staged bootstrap continuity; it is cleared when bootstrap context is cleared.
 - `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
 - `in_flight_attempt` records crash-safe per-attempt execution context before/after each Codex invocation (expected branch, mode, attempt index, prompt hash, pre/post head, error state).

@@ -53,7 +53,7 @@ func TestBuildBootstrapIntentPromptContainsProtocolContract(t *testing.T) {
 		},
 	}
 
-	prompt := o.buildBootstrapIntentPrompt("", "")
+	prompt := o.buildBootstrapIntentPrompt(nil, "", "")
 	required := []string{
 		"This turn is INTENT-ONLY planning; do not modify files.",
 		"Do NOT edit files. Do NOT commit. Do NOT push. Do NOT create PR.",
@@ -79,9 +79,34 @@ func TestBuildBootstrapIntentPromptIncludesPendingTaskTarget(t *testing.T) {
 		},
 	}
 
-	prompt := o.buildBootstrapIntentPrompt("5.4a", "")
-	if !strings.Contains(prompt, "Prioritize pending issue-derived task context: Task 5.4a.") {
+	prompt := o.buildBootstrapIntentPrompt(nil, "5.4a", "")
+	if !strings.Contains(prompt, "Legacy pending task hint: prioritize Task 5.4a.") {
 		t.Fatalf("missing pending task targeting instruction in bootstrap intent prompt:\n%s", prompt)
+	}
+}
+
+func TestBuildBootstrapIntentPromptIncludesIssueTaskIntentContext(t *testing.T) {
+	o := orchestrator{
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+
+	intent := &state.IssueTaskIntent{
+		IssueNumber: 17,
+		TaskTitle:   "stabilize issue-first bootstrap handoff",
+		TaskBody:    "Use issue triage proposal as the bootstrap context.",
+	}
+	prompt := o.buildBootstrapIntentPrompt(intent, "", "")
+	required := []string{
+		"Issue-derived intake context is active: issue #17.",
+		"Issue-derived proposed task title: stabilize issue-first bootstrap handoff",
+		"Select a concrete canonical Task <id> reference for this issue in INTENT_JSON task_ref.",
+	}
+	for _, needle := range required {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("missing %q in bootstrap intent prompt:\n%s", needle, prompt)
+		}
 	}
 }
 

@@ -282,7 +282,7 @@ Execution note:
   - Scope: remove direct orchestrator writes to project workflow/planning/source files (starting with `docs/PLANNING.md` insertion), keeping project edits Codex-authored via normal commits while simug writes only `.simug/*` runtime artifacts and orchestrator-owned GitHub mutations.
   - Done when: a runtime write-path audit confirms non-test orchestrator writes are limited to `.simug/*`, and `docs/DESIGN.md` no longer carries stale divergence wording for this boundary.
 
-- [ ] **Task 7.2: Replace planner insertion with Codex-mediated issue-task intake**
+- [x] **Task 7.2: Replace planner insertion with Codex-mediated issue-task intake**
   - Scope: change issue-triage flow so `issue_report.needs_task=true` produces coordinator intent and bootstrap instructions, not markdown parsing/insertion by simug.
   - Done when: issue-derived work can proceed end-to-end without simug parsing or editing planning files, and `docs/DESIGN.md`/`docs/WORKFLOW.md` describe the finalized Codex-mediated flow.
   - Refinement: `Task 7.1` removed runtime planning insertion and now logs issue-task intent without `pending_task_id` assignment; define explicit bootstrap handoff fields and backlink/task-context semantics for issue-derived work.
