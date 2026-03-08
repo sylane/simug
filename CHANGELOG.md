@@ -38,6 +38,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added failure-injection integration coverage for startup recovery transitions, fetch-origin failures in no-PR intake, and merged-finalization close-issue failures.
 - Added real-Codex protocol conformance canary harness (`TestRealCodexProtocolConformanceCanary`) plus `scripts/canary-real-codex-protocol.sh` for repeatable runtime validation with archived artifacts.
 - Added real-Codex repair/restart canary harness (`TestRealCodexRepairInteractionCanary`, `TestRealCodexRestartRecoveryBoundaryCanary`) plus `scripts/canary-real-codex-recovery.sh`.
+- Added `scripts/canary-real-codex-gate.sh` and `docs/REAL_CODEX_GATE.md` to make protocol+recovery canaries an auditable operator/release validation gate with retention policy.
 
 ### Changed
 

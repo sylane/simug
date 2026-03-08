@@ -254,6 +254,12 @@ To validate repair/restart boundaries with real Codex runtime:
 scripts/canary-real-codex-recovery.sh --cmd "codex" --out .simug/canary/real-codex
 ```
 
+To run the combined real-Codex validation gate (protocol + recovery):
+
+```bash
+scripts/canary-real-codex-gate.sh --cmd "codex" --out .simug/canary/real-codex --retain-days 14
+```
+
 What it does per iteration:
 
 - rebuilds `bin/simug`,

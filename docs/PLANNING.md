@@ -225,12 +225,12 @@ Execution note:
   - Scope: execute real Codex runs that intentionally trigger repair paths and one-shot restart/resume boundaries, validating orchestrator recovery semantics with live agent behavior and artifact continuity from 6.5a canary roots.
   - Done when: repair/restart behavior with real Codex is reproducibly validated across scripted interruption scenarios.
 
-- [ ] **Task 6.5c: Real Codex validation gate integration**
+- [x] **Task 6.5c: Real Codex validation gate integration**
   - Scope: integrate real Codex canaries into operator/release workflow (manual gate and/or scheduled gate) with clear prerequisites, cost/runtime expectations, and artifact retention, including protocol + recovery canary runners.
   - Done when: release readiness requires recent successful real Codex validation evidence.
 
 - [ ] **Task 6.6: Live GitHub + real Codex dry-run on a sandbox repo**
-  - Scope: validate issue-first intake plus polling/replies/push/PR transitions end-to-end with real GitHub API and real Codex runtime.
+  - Scope: validate issue-first intake plus polling/replies/push/PR transitions end-to-end with real GitHub API and real Codex runtime, using 6.5c validation gate artifacts as prerequisite evidence.
   - Done when: at least one issue-driven and one planning-driven PR lifecycle complete without manual state repair.
 
 - [ ] **Task 6.7: End-to-end self-hosting canary workflow**

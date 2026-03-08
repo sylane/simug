@@ -48,3 +48,24 @@ func TestRealCodexRecoveryCanaryScriptContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRealCodexGateScriptContract(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "canary-real-codex-gate.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read gate script: %v", err)
+	}
+	content := string(data)
+
+	required := []string{
+		"canary-real-codex-protocol.sh",
+		"canary-real-codex-recovery.sh",
+		"summary.json",
+		"--retain-days",
+	}
+	for _, needle := range required {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("missing %q in gate script", needle)
+		}
+	}
+}
