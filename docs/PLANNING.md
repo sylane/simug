@@ -213,12 +213,12 @@ Execution note:
   - Scope: implement explicit recovery transitions for interrupted runs (resume/replay/repair/abort) with invariant checks, consuming `in_flight_attempt` journal phases persisted in 6.3.
   - Done when: restart behavior is deterministic and documented for each failure mode.
 
-- [ ] **Task 6.5: Failure-injection integration tests**
+- [x] **Task 6.5: Failure-injection integration tests**
   - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, restart mid-attempt, recovery action transitions (`resume`/`replay`/`repair`/`abort`), and issue-link finalization fault paths (scope rejection + duplicate markers + close failures).
   - Done when: known failure classes are reproducible and covered by automated tests.
 
 - [ ] **Task 6.5a: Real Codex protocol conformance canary**
-  - Scope: run scripted canary scenarios against a real Codex runtime (not shell fixtures) to validate protocol parseability, channel prefix discipline, and terminal-action cardinality under managed/triage/bootstrap prompts.
+  - Scope: run scripted canary scenarios against a real Codex runtime (not shell fixtures) to validate protocol parseability, channel prefix discipline, terminal-action cardinality, and malformed/partial output handling under managed/triage/bootstrap prompts.
   - Done when: canary provides repeatable pass/fail results with archived prompt/output artifacts for debugging failures.
 
 - [ ] **Task 6.5b: Real Codex repair/restart interaction canary**

@@ -1664,6 +1664,109 @@ func TestRunRecoveryAbortOnDirtyTree(t *testing.T) {
 	}
 }
 
+func TestRunNoOpenPRFailsOnFetchOriginError(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	runner := mockCommandRunner{
+		responses: map[string]string{
+			commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+			commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+			commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+			commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+			commandKey("git", "status", "--porcelain"): "\n",
+		},
+		errors: map[string]error{
+			commandKey("git", "fetch", "--prune", "origin"): fmt.Errorf("network down"),
+		},
+	}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	err := RunOnce(context.Background(), tmp)
+	if err == nil {
+		t.Fatalf("expected fetch failure")
+	}
+	if !strings.Contains(err.Error(), "fetch origin") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunMergeFinalizationFailsWhenCloseIssueFails(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "active_pr": 42,
+  "active_branch": "agent/20260307-120000-alpha-task",
+  "mode": "managed_pr",
+  "issue_links": [
+    {
+      "pr_number": 42,
+      "issue_number": 7,
+      "relation": "fixes",
+      "comment_body": "Resolved by merge",
+      "provenance": "run=abc tick=1",
+      "idempotency_key": "fix-key",
+      "recorded_at": "2026-03-08T00:49:00Z",
+      "comment_posted": true,
+      "finalized": false
+    }
+  ],
+  "updated_at": "2026-03-08T00:49:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	link := state.IssueLink{
+		PRNumber:       42,
+		IssueNumber:    7,
+		Relation:       "fixes",
+		CommentBody:    "Resolved by merge",
+		IdempotencyKey: "fix-key",
+	}
+	finalBody := buildIssueFinalizationCommentBody("example/simug", link)
+	runner := mockCommandRunner{
+		responses: map[string]string{
+			commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+			commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+			commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+			commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+			commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"):                                   `{"number":42,"title":"A","state":"MERGED","headRefName":"agent/20260307-120000-alpha-task","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":"2026-03-08T00:50:00Z"}`,
+			commandKey("gh", "api", "repos/example/simug/issues/7"):                                                                                                   `{"number":7,"title":"tracked","body":"x","state":"OPEN","user":{"login":"alice"}}`,
+			commandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"):                                                                 "[]",
+			commandKey("gh", "issue", "comment", "7", "--body", finalBody):                                                                                            "",
+		},
+		errors: map[string]error{
+			commandKey("gh", "api", "repos/example/simug/issues/7", "--method", "PATCH", "-f", "state=closed"): fmt.Errorf("permission denied"),
+		},
+	}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	err := RunOnce(context.Background(), tmp)
+	if err == nil {
+		t.Fatalf("expected close issue failure")
+	}
+	if !strings.Contains(err.Error(), "close issue #7") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Task 5.4a"; then printf 'SIMUG: {"action":"idle","reason":"pending-task bootstrap targeted"}\n'; else printf 'SIMUG: {"action":"done","summary":"missing pending task target","changes":false}\n'; fi`)
