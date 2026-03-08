@@ -43,7 +43,47 @@ Operating model:
 - `git`
 - `go` (1.22+)
 - `gh` (GitHub CLI)
+- `codex` CLI available on `PATH` (recommended default mode: `codex exec`)
 - Authenticated GitHub session (`gh auth login`)
+- Environment-configured Codex runtime (auth configured and writable Codex runtime paths such as `~/.codex`, or explicit `CODEX_HOME` / `CODEX_SQLITE_HOME`)
+
+## First-Time Setup Checklist
+
+Run this once before starting `simug`:
+
+1. Install required CLIs: `git`, `go`, `gh`, and `codex`.
+2. Authenticate GitHub CLI:
+
+```bash
+gh auth login
+gh auth status
+```
+
+3. Verify Codex CLI is installed and callable:
+
+```bash
+codex exec --help
+```
+
+4. Mark the target repository as trusted in Codex config (recommended for non-interactive runs):
+
+```toml
+[projects."/absolute/path/to/your/repo"]
+trust_level = "trusted"
+```
+
+5. Ensure target repository prerequisites:
+- repository has an `origin` remote pointing to GitHub,
+- working tree is clean.
+
+6. Build and run one deterministic tick:
+
+```bash
+make build
+./bin/simug run --once
+```
+
+If Codex auth or runtime paths are misconfigured, simug/canary preflight fails early with actionable diagnostics.
 
 ## Install Dependencies (Ubuntu/Debian)
 
@@ -62,12 +102,17 @@ sudo apt-get update
 sudo apt-get install -y gh
 ```
 
+Install Codex CLI separately (platform-specific) before running simug:
+
+- project: <https://github.com/openai/codex>
+
 Verify:
 
 ```bash
 go version
 gh --version
 git --version
+codex exec --help
 ```
 
 Authenticate GitHub CLI:
@@ -177,6 +222,9 @@ Example Codex configuration for self-hosted `simug` development:
 Example `~/.codex/config.toml`:
 
 ```toml
+[projects."/absolute/path/to/repo"]
+trust_level = "trusted"
+
 [profiles.simug]
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
@@ -184,6 +232,8 @@ sandbox_mode = "workspace-write"
 [sandbox_workspace_write]
 network_access = true
 ```
+
+Without a trusted project entry, Codex may prompt/block on repository trust in non-interactive flows.
 
 Use that profile in non-interactive mode (or in `SIMUG_AGENT_CMD`) for this self-hosted workflow:
 
