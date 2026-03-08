@@ -82,6 +82,8 @@ From `simug` repo root:
 
 ```bash
 go build -o bin/simug ./cmd/simug
+# or:
+make build
 ```
 
 This creates the binary at `./bin/simug` (inside this repo).
@@ -90,6 +92,8 @@ Install globally to your Go bin directory (recommended if you want `simug` avail
 
 ```bash
 go install ./cmd/simug
+# or:
+make install
 ```
 
 Then ensure your Go bin directory is on `PATH` (commonly `~/go/bin`).
@@ -99,6 +103,23 @@ Run without building a binary (only from the `simug` source repo):
 ```bash
 go run ./cmd/simug run
 ```
+
+Quick target discovery:
+
+```bash
+make help
+```
+
+Common targets:
+
+- `make build`
+- `make test`
+- `make cover`
+- `make run`
+- `make run-once`
+- `make selfhost-loop ITERATIONS=5`
+- `make canary-gate CODEX_CMD="codex"`
+- `make chaos`
 
 ## Running in Any Repository
 

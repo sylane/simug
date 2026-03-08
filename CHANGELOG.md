@@ -43,6 +43,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added end-to-end self-host canary workflow (`scripts/self-host-canary.sh`, `docs/SELF_HOST_CANARY.md`) with two-phase restart-boundary execution and summary artifacts.
 - Added self-host go/no-go checklist runbook (`docs/SELF_HOST_GO_NO_GO.md`) with explicit release gates, rollback flow, and operator command set.
 - Added stop/restart chaos validation workflow (`scripts/chaos-stop-restart.sh`, `docs/CHAOS_STOP_RESTART.md`) covering SIGTERM/SIGKILL interruption recovery checks.
+- Added a top-level `Makefile` with thin workflow targets for build/test/coverage/install/run plus self-host/canary/sandbox/chaos commands, and documented usage in `README.md`.
 
 ### Changed
 
