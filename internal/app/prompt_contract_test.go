@@ -107,6 +107,7 @@ func TestBuildBootstrapExecutionPromptContainsApprovedIntent(t *testing.T) {
 		fmt.Sprintf("Create and use branch EXACTLY named: %s", intent.BranchName),
 		fmt.Sprintf("Approved task reference: %s", intent.TaskRef),
 		fmt.Sprintf("Approved branch slug: %s", intent.BranchSlug),
+		"Scope lock: do not switch tasks;",
 		"Do NOT push. Do NOT create PR.",
 		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
 		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}`,
@@ -155,7 +156,7 @@ func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
 	}
 
 	expectedBranch := "agent/20260307-120000-next-task"
-	prompt := o.buildRepairPrompt(expectedBranch, fmt.Errorf("boom"))
+	prompt := o.buildRepairPrompt(expectedBranch, fmt.Errorf("boom"), nil)
 	required := []string{
 		"never push or create/update PR directly",
 		"use issue_update actions for issue linkage intent; do not comment on issues directly",
@@ -171,6 +172,31 @@ func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in repair prompt:\n%s", needle, prompt)
+		}
+	}
+}
+
+func TestBuildRepairPromptIncludesExecutionScopeLockConstraints(t *testing.T) {
+	o := orchestrator{
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+	scopeLock := &executionScopeLock{
+		TaskRef:    "Task 7.2b",
+		TaskID:     "7.2b",
+		BranchName: "agent/20260308-120000-execution-scope-lock",
+	}
+
+	prompt := o.buildRepairPrompt("agent/20260308-120000-execution-scope-lock", fmt.Errorf("scope violation"), scopeLock)
+	required := []string{
+		`execution scope lock: stay on "agent/20260308-120000-execution-scope-lock" and implement only Task 7.2b`,
+		"in docs/PLANNING.md, do not change status markers for tasks other than Task 7.2b",
+		"at most one [IN_PROGRESS] task is allowed, and if present it must be Task 7.2b",
+	}
+	for _, needle := range required {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("missing %q in scope-locked repair prompt:\n%s", needle, prompt)
 		}
 	}
 }

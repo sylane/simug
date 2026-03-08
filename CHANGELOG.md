@@ -52,6 +52,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added protocol-first runner recovery so non-zero Codex exits are accepted when emitted output is still fully parseable and protocol-valid.
 - Added staged bootstrap intent handshake for no-PR flow: a read-only intent turn (`INTENT_JSON` + `done changes=false`) that persists validated `bootstrap_intent` in state before execution is allowed.
 - Added bootstrap intent parsing/validation unit tests and updated integration coverage for deterministic issue selection and pending-task targeting under staged intent flow.
+- Added execution scope-lock enforcement for staged bootstrap runs, including planning-status drift checks on non-target tasks and `[IN_PROGRESS]` cardinality/target validation.
+- Added scope-lock repair prompt constraints and unit coverage for task-ref parsing, planning-status lock validation, and scope-constrained repair instructions.
 
 ### Changed
 
@@ -68,3 +70,4 @@ https://keepachangelog.com/en/1.1.0/
 - Declared `history/*` files immutable after commit in workflow rules; follow-up clarifications must be recorded in new history files.
 - Moved operational runbooks from `docs/` to `docs/runbooks/` and updated project references so top-level docs remain focused on design/planning/workflow guidance.
 - Changed no-PR bootstrap orchestration from single-turn execution to a two-stage contract (`intent` tick, then `execution` tick) with explicit commit/no-commit invariants per stage.
+- Tightened bootstrap intent contract so `task_ref` must include canonical `Task <id>` for deterministic scope locking during execution/repair attempts.

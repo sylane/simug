@@ -34,6 +34,8 @@ const (
 )
 
 var bootstrapIntentSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,40}$`)
+var taskRefIDPattern = regexp.MustCompile(`(?i)\btask\s+([0-9]+\.[0-9]+[a-z]?)\b`)
+var planningTaskStatusPattern = regexp.MustCompile(`^- \[( |x)\] \*\*(?:\[IN_PROGRESS\] )?Task ([0-9]+\.[0-9]+[a-z]?):`)
 
 type config struct {
 	PollInterval      time.Duration
@@ -345,7 +347,7 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	}
 
 	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, func(result agent.Result) error {
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, func(result agent.Result) error {
 		return validateIssueUpdateActions(result.Actions)
 	})
 	if err != nil {
@@ -542,7 +544,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 			var report agent.Action
 			prompt := o.buildIssueTriagePrompt(*selected, "")
-			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, func(result agent.Result) error {
+			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result) error {
 				r, validateErr := validateIssueTriageResult(result, selected.Number)
 				if validateErr != nil {
 					return validateErr
@@ -594,7 +596,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 		var approved state.BootstrapIntent
 		intentPrompt := o.buildBootstrapIntentPrompt(o.state.PendingTaskID, "")
-		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, func(result agent.Result) error {
+		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, func(result agent.Result) error {
 			intent, validateErr := o.validateBootstrapIntentResult(result, o.state.PendingTaskID)
 			if validateErr != nil {
 				return validateErr
@@ -635,6 +637,10 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	}
 
 	intent := *o.state.BootstrapIntent
+	scopeLock, err := o.newExecutionScopeLock(intent)
+	if err != nil {
+		return err
+	}
 	beforeHead, err := git.HeadSHA(ctx, o.repoRoot)
 	if err != nil {
 		return fmt.Errorf("read HEAD before bootstrap execution run: %w", err)
@@ -642,8 +648,11 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	expectedBranch := intent.BranchName
 	prompt := o.buildBootstrapPrompt(intent, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, func(result agent.Result) error {
-		return validateIssueUpdateActions(result.Actions)
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, func(result agent.Result) error {
+		if err := validateIssueUpdateActions(result.Actions); err != nil {
+			return err
+		}
+		return o.validateExecutionScopeLock(scopeLock)
 	})
 	if err != nil {
 		return err
@@ -712,7 +721,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	return nil
 }
 
-func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, validateResult func(agent.Result) error) (agent.Result, string, error) {
+func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, validateResult func(agent.Result) error) (agent.Result, string, error) {
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, expectedBranch, beforeHead, currentPrompt); err != nil {
@@ -781,7 +790,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 				return agent.Result{}, "", fmt.Errorf("agent failed after %d attempts with execution/protocol errors: %w", attempt+1, err)
 			}
 
-			currentPrompt = o.buildRepairPrompt(expectedBranch, err)
+			currentPrompt = o.buildRepairPrompt(expectedBranch, err, scopeLock)
 			continue
 		}
 		o.logEvent("agent_attempt", "codex attempt completed", map[string]any{
@@ -870,7 +879,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 			return agent.Result{}, "", fmt.Errorf("agent failed validation after %d attempts: %w", attempt+1, validationErr)
 		}
 
-		currentPrompt = o.buildRepairPrompt(expectedBranch, validationErr)
+		currentPrompt = o.buildRepairPrompt(expectedBranch, validationErr, scopeLock)
 	}
 	return agent.Result{}, "", fmt.Errorf("unreachable")
 }
@@ -1661,6 +1670,9 @@ func (o *orchestrator) buildBootstrapPrompt(intent state.BootstrapIntent, repair
 	b.WriteString(fmt.Sprintf("- Approved branch slug: %s\n", intent.BranchSlug))
 	b.WriteString(fmt.Sprintf("- Approved PR title draft: %s\n", limitString(strings.TrimSpace(intent.PRTitle), 300)))
 	b.WriteString(fmt.Sprintf("- Approved PR body draft: %s\n", limitString(strings.TrimSpace(intent.PRBody), 1200)))
+	if taskID, err := parseTaskIDFromRef(intent.TaskRef); err == nil {
+		b.WriteString(fmt.Sprintf("- Scope lock: do not switch tasks; planning status changes for other tasks are forbidden while executing Task %s.\n", taskID))
+	}
 	if len(intent.Checks) > 0 {
 		b.WriteString(fmt.Sprintf("- Approved validation checks: %s\n", strings.Join(intent.Checks, " | ")))
 	}
@@ -1693,6 +1705,27 @@ type bootstrapIntentProposal struct {
 	PRTitle    string   `json:"pr_title"`
 	PRBody     string   `json:"pr_body"`
 	Checks     []string `json:"checks"`
+}
+
+type planningTaskStatus string
+
+const (
+	planningTaskTODO       planningTaskStatus = "todo"
+	planningTaskInProgress planningTaskStatus = "in_progress"
+	planningTaskDone       planningTaskStatus = "done"
+)
+
+type planningStatusSnapshot struct {
+	Exists       bool
+	TasksByID    map[string]planningTaskStatus
+	InProgressID []string
+}
+
+type executionScopeLock struct {
+	TaskRef          string
+	TaskID           string
+	BranchName       string
+	PlanningBaseline planningStatusSnapshot
 }
 
 func (o *orchestrator) validateBootstrapIntentResult(result agent.Result, pendingTaskID string) (state.BootstrapIntent, error) {
@@ -1733,6 +1766,9 @@ func (o *orchestrator) validateBootstrapIntentResult(result agent.Result, pendin
 		if !strings.Contains(strings.ToLower(strings.TrimSpace(proposal.TaskRef)), strings.ToLower(strings.TrimSpace(pendingTaskID))) {
 			return state.BootstrapIntent{}, fmt.Errorf("intent task_ref %q does not match required pending task %q", proposal.TaskRef, pendingTaskID)
 		}
+	}
+	if _, err := parseTaskIDFromRef(proposal.TaskRef); err != nil {
+		return state.BootstrapIntent{}, fmt.Errorf("intent task_ref validation failed: %w", err)
 	}
 
 	slug := sanitizeBranchSlug(proposal.BranchSlug)
@@ -1816,7 +1852,111 @@ func sanitizeBranchSlug(raw string) string {
 	return normalized
 }
 
-func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr error) string {
+func parseTaskIDFromRef(taskRef string) (string, error) {
+	match := taskRefIDPattern.FindStringSubmatch(strings.TrimSpace(taskRef))
+	if len(match) != 2 {
+		return "", fmt.Errorf("task_ref %q must include canonical 'Task <id>'", strings.TrimSpace(taskRef))
+	}
+	return strings.TrimSpace(match[1]), nil
+}
+
+func capturePlanningStatus(repoRoot string) (planningStatusSnapshot, error) {
+	path := filepath.Join(repoRoot, "docs", "PLANNING.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return planningStatusSnapshot{
+				Exists:       false,
+				TasksByID:    map[string]planningTaskStatus{},
+				InProgressID: nil,
+			}, nil
+		}
+		return planningStatusSnapshot{}, fmt.Errorf("read planning file: %w", err)
+	}
+
+	snapshot := planningStatusSnapshot{
+		Exists:       true,
+		TasksByID:    make(map[string]planningTaskStatus),
+		InProgressID: nil,
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		match := planningTaskStatusPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(match) != 3 {
+			continue
+		}
+		check := strings.TrimSpace(match[1])
+		taskID := strings.TrimSpace(match[2])
+		status := planningTaskTODO
+		if check == "x" {
+			status = planningTaskDone
+		} else if strings.Contains(line, "**[IN_PROGRESS] Task ") {
+			status = planningTaskInProgress
+			snapshot.InProgressID = append(snapshot.InProgressID, taskID)
+		}
+		snapshot.TasksByID[taskID] = status
+	}
+	return snapshot, nil
+}
+
+func (o *orchestrator) newExecutionScopeLock(intent state.BootstrapIntent) (*executionScopeLock, error) {
+	taskID, err := parseTaskIDFromRef(intent.TaskRef)
+	if err != nil {
+		return nil, fmt.Errorf("derive execution scope lock from intent: %w", err)
+	}
+	planningBaseline, err := capturePlanningStatus(o.repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	return &executionScopeLock{
+		TaskRef:          strings.TrimSpace(intent.TaskRef),
+		TaskID:           taskID,
+		BranchName:       strings.TrimSpace(intent.BranchName),
+		PlanningBaseline: planningBaseline,
+	}, nil
+}
+
+func (o *orchestrator) validateExecutionScopeLock(lock *executionScopeLock) error {
+	if lock == nil {
+		return nil
+	}
+
+	current, err := capturePlanningStatus(o.repoRoot)
+	if err != nil {
+		return err
+	}
+	if lock.PlanningBaseline.Exists && !current.Exists {
+		return fmt.Errorf("execution scope lock violation: docs/PLANNING.md disappeared during locked task %s", lock.TaskID)
+	}
+	if len(current.InProgressID) > 1 {
+		return fmt.Errorf("execution scope lock violation: multiple [IN_PROGRESS] tasks detected: %s", strings.Join(current.InProgressID, ", "))
+	}
+	if len(current.InProgressID) == 1 && strings.TrimSpace(current.InProgressID[0]) != lock.TaskID {
+		return fmt.Errorf("execution scope lock violation: [IN_PROGRESS] task drifted to %s (locked task is %s)", strings.TrimSpace(current.InProgressID[0]), lock.TaskID)
+	}
+
+	if !lock.PlanningBaseline.Exists {
+		return nil
+	}
+	for taskID, baselineStatus := range lock.PlanningBaseline.TasksByID {
+		if taskID == lock.TaskID {
+			continue
+		}
+		currentStatus, ok := current.TasksByID[taskID]
+		if !ok {
+			return fmt.Errorf("execution scope lock violation: task %s disappeared from planning during locked execution", taskID)
+		}
+		if currentStatus != baselineStatus {
+			return fmt.Errorf("execution scope lock violation: task %s status changed from %s to %s during locked task %s", taskID, baselineStatus, currentStatus, lock.TaskID)
+		}
+	}
+	if _, ok := current.TasksByID[lock.TaskID]; !ok {
+		return fmt.Errorf("execution scope lock violation: locked task %s is missing from planning", lock.TaskID)
+	}
+	return nil
+}
+
+func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr error, scopeLock *executionScopeLock) string {
 	var b strings.Builder
 	b.WriteString("Your previous run violated simug validation checks.\n")
 	b.WriteString("Fix repository consistency and emit protocol lines again.\n")
@@ -1832,6 +1972,11 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("- use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined\n")
 	b.WriteString(fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)\n", expectedBranch, o.cfg.MainBranch))
 	b.WriteString("- keep the working tree clean before finishing\n")
+	if scopeLock != nil {
+		b.WriteString(fmt.Sprintf("- execution scope lock: stay on %q and implement only %s\n", scopeLock.BranchName, scopeLock.TaskRef))
+		b.WriteString(fmt.Sprintf("- in docs/PLANNING.md, do not change status markers for tasks other than Task %s\n", scopeLock.TaskID))
+		b.WriteString(fmt.Sprintf("- at most one [IN_PROGRESS] task is allowed, and if present it must be Task %s\n", scopeLock.TaskID))
+	}
 	b.WriteString("Protocol JSON lines:\n")
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
 	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")

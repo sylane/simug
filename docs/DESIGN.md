@@ -33,7 +33,7 @@ The objective is implementable with the current architecture:
 Current implementation still has known gaps relative to target design:
 
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Execution-scope lock, parser echo hardening, and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
+- Parser echo hardening and same-session continuity across staged bootstrap turns are still pending (tracked in planning).
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -56,6 +56,7 @@ These invariants are enforced on every loop iteration.
 13. Orchestrator direct filesystem writes are limited to `.simug/*` runtime artifacts; project content changes come from Codex commits.
 14. Repository instruction documents (for example `AGENTS.md`) are optional Codex context inputs only, not orchestration control inputs.
 15. `task_bootstrap` execution runs are allowed only after a previously approved, persisted bootstrap intent.
+16. During locked `task_bootstrap` execution, planning status drift outside the approved task is rejected (including foreign/extra `[IN_PROGRESS]` transitions).
 
 ## 3. Managed PR Definition
 
@@ -129,7 +130,8 @@ When no managed open PR exists:
 9. In `task_bootstrap` mode with approved intent, run execution turn:
    - Codex must execute the approved task scope,
    - Codex must create/use derived managed branch `agent/<timestamp>-<branch_slug>`,
-   - Codex commits locally and emits terminal `done` (`changes=true`) or terminal `idle`.
+   - Codex commits locally and emits terminal `done` (`changes=true`) or terminal `idle`,
+   - planning status changes for tasks other than the approved task are forbidden.
 10. Validate Codex output:
    - branch matches managed pattern,
    - at least one new commit exists for `done + changes=true`,
@@ -255,7 +257,8 @@ This section defines the concrete simug <-> Codex interactions by use case.
 5. Simug validates terminal action + repo invariants:
    - expected branch policy for approved intent branch,
    - clean tree,
-   - `done + changes=true` requires new commit.
+   - `done + changes=true` requires new commit,
+   - planning status lock for non-target tasks (`[IN_PROGRESS]` cardinality + no foreign status drift).
 6. If valid, simug performs orchestrator-owned remote mutations:
    - push branch,
    - create PR,
@@ -387,7 +390,7 @@ This matrix defines how simug reacts to Codex protocol output by mode.
   - Execution stage (approved `bootstrap_intent` exists):
     - Allowed non-terminal actions: `comment`, `issue_update`.
     - Required terminal: exactly one `done` or `idle`.
-    - Orchestrator reaction: validate branch/commit/clean tree and issue-update payloads; push/create PR on valid `done + changes=true`; clear intent on completion/idle.
+    - Orchestrator reaction: validate branch/commit/clean tree, planning scope lock, and issue-update payloads; push/create PR on valid `done + changes=true`; clear intent on completion/idle.
 - Any mode with invalid action set or cardinality:
   - Orchestrator reaction: reject run, emit repair prompt, retry within bounded limit, then fail-closed.
 
@@ -408,10 +411,14 @@ After every Codex run:
    - `done` must set `changes=false`,
    - branch/commit must remain on `main`,
    - exactly one intent comment with valid `INTENT_JSON` payload is required.
-8. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
-9. Manager-channel lines are size-limited and sanitized before display/logging.
-10. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.
-11. Merge finalization comments/closures must be idempotent and replay-safe across restart.
+8. In `task_bootstrap` execution stage:
+   - approved `task_ref` must include canonical `Task <id>` and remain scope lock target during retries,
+   - status changes in `docs/PLANNING.md` for non-target tasks are rejected,
+   - at most one `[IN_PROGRESS]` task is allowed and it must be the locked task when present.
+9. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
+10. Manager-channel lines are size-limited and sanitized before display/logging.
+11. `issue_update` intent application to GitHub issues must be idempotent and same-user scoped.
+12. Merge finalization comments/closures must be idempotent and replay-safe across restart.
 
 Repair is bounded by `max_repair_attempts`. Exceeding bound causes hard failure to avoid infinite loops.
 

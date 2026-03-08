@@ -291,7 +291,7 @@ Execution note:
   - Scope: split bootstrap into a read-only `intent` turn where Codex proposes task scope/branch slug/PR draft/check plan without editing files; orchestrator validates and persists approved intent before any write-enabled execution turn.
   - Done when: intent turn is machine-validated, leaves clean tree unchanged, and execution turn cannot start without an approved persisted intent.
 
-- [ ] **Task 7.2b: Execution scope lock and repair containment**
+- [x] **Task 7.2b: Execution scope lock and repair containment**
   - Scope: bind execution/repair prompts to the approved intent and reject drift (task switching, unrelated planning edits, extra `[IN_PROGRESS]` mutations) during repair loops.
   - Done when: protocol/invariant repair attempts are constrained to the same approved task scope and cannot silently advance to a different task.
 

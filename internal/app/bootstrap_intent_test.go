@@ -109,6 +109,40 @@ func TestValidateBootstrapIntentResultRejectsPendingTaskMismatch(t *testing.T) {
 	}
 }
 
+func TestValidateBootstrapIntentResultRejectsNonCanonicalTaskRef(t *testing.T) {
+	o := orchestrator{
+		cfg: config{
+			BranchPrefix: "agent/",
+		},
+	}
+	result := agent.Result{
+		Actions: []agent.Action{
+			{
+				Type: agent.ActionComment,
+				Body: `INTENT_JSON:{"task_ref":"Improve task handling","summary":"intent stage","branch_slug":"intent-stage","pr_title":"feat: intent stage","pr_body":"Implements intent stage"}`,
+			},
+			{
+				Type:    agent.ActionDone,
+				Summary: "intent prepared",
+				Changes: false,
+			},
+		},
+		Terminal: agent.Action{
+			Type:    agent.ActionDone,
+			Summary: "intent prepared",
+			Changes: false,
+		},
+	}
+
+	_, err := o.validateBootstrapIntentResult(result, "")
+	if err == nil {
+		t.Fatalf("expected task_ref validation error")
+	}
+	if !strings.Contains(err.Error(), "canonical 'Task <id>'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestSanitizeBranchSlugNormalizesAndTruncates(t *testing.T) {
 	raw := "  Intent Stage / with$Symbols and VERY LONG TEXT THAT SHOULD BE TRUNCATED  "
 	slug := sanitizeBranchSlug(raw)
