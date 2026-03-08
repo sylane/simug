@@ -57,6 +57,13 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 			StartedAt:      time.Now().UTC().Truncate(time.Second),
 			UpdatedAt:      time.Now().UTC().Truncate(time.Second),
 		},
+		LastRecovery: &Recovery{
+			Action:     RecoveryReplay,
+			Reason:     "journal phase started",
+			AttemptRun: "run-x",
+			AttemptSeq: 3,
+			RecordedAt: time.Now().UTC().Truncate(time.Second),
+		},
 		LastCommentID:       1,
 		LastIssueCommentID:  2,
 		LastReviewCommentID: 3,
@@ -87,6 +94,9 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 	}
 	if got.InFlightAttempt == nil || got.InFlightAttempt.PromptHash != "abc123" || got.InFlightAttempt.AttemptIndex != 1 {
 		t.Fatalf("in_flight_attempt mismatch: got=%#v", got.InFlightAttempt)
+	}
+	if got.LastRecovery == nil || got.LastRecovery.Action != RecoveryReplay {
+		t.Fatalf("last_recovery mismatch: got=%#v", got.LastRecovery)
 	}
 }
 
@@ -152,5 +162,17 @@ func TestNormalizeDropsInvalidInFlightAttempt(t *testing.T) {
 	st.Normalize()
 	if st.InFlightAttempt != nil {
 		t.Fatalf("expected invalid in_flight_attempt to be removed, got %#v", st.InFlightAttempt)
+	}
+}
+
+func TestNormalizeDropsInvalidLastRecovery(t *testing.T) {
+	st := &State{
+		LastRecovery: &Recovery{
+			Action: "bad-action",
+		},
+	}
+	st.Normalize()
+	if st.LastRecovery != nil {
+		t.Fatalf("expected invalid last_recovery to be removed, got %#v", st.LastRecovery)
 	}
 }

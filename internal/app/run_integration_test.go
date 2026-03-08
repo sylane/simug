@@ -1358,6 +1358,312 @@ func TestRunOnceNoOpenPRIdleCompletesSingleTick(t *testing.T) {
 	}
 }
 
+func TestRunOnceRecoversInFlightAttemptWithReplayAction(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "issue_triage",
+  "in_flight_attempt": {
+    "run_id": "old-run",
+    "tick_seq": 4,
+    "attempt_index": 1,
+    "max_attempts": 2,
+    "expected_branch": "main",
+    "mode": "issue_triage",
+    "phase": "started",
+    "prompt_hash": "abc123",
+    "before_head": "deadbeef",
+    "started_at": "2026-03-08T01:00:00Z",
+    "updated_at": "2026-03-08T01:00:00Z"
+  },
+  "updated_at": "2026-03-08T01:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"):      tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):       "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"):      "alice\n",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"): "main\n",
+		commandKey("git", "status", "--porcelain"):             "\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("git", "fetch", "--prune", "origin"):                                                         "",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):                          "0 0\n",
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[]`,
+		commandKey("git", "rev-parse", "HEAD"):                                                                  "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		CursorUncertain bool `json:"cursor_uncertain"`
+		LastRecovery    struct {
+			Action string `json:"action"`
+		} `json:"last_recovery"`
+		InFlightAttempt any `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.LastRecovery.Action != "replay" {
+		t.Fatalf("last_recovery.action=%q, want replay", st.LastRecovery.Action)
+	}
+	if !st.CursorUncertain {
+		t.Fatalf("expected cursor_uncertain=true after replay recovery")
+	}
+	if st.InFlightAttempt != nil {
+		t.Fatalf("expected in_flight_attempt cleared after replay recovery, got %#v", st.InFlightAttempt)
+	}
+}
+
+func TestRunOnceRecoversInFlightAttemptWithResumeAction(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "issue_triage",
+  "in_flight_attempt": {
+    "run_id": "old-run",
+    "tick_seq": 4,
+    "attempt_index": 1,
+    "max_attempts": 2,
+    "expected_branch": "main",
+    "mode": "issue_triage",
+    "phase": "validated",
+    "prompt_hash": "abc123",
+    "before_head": "deadbeef",
+    "after_head": "deadbeef",
+    "started_at": "2026-03-08T01:00:00Z",
+    "updated_at": "2026-03-08T01:00:00Z"
+  },
+  "updated_at": "2026-03-08T01:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"):      tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):       "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"):      "alice\n",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"): "main\n",
+		commandKey("git", "status", "--porcelain"):             "\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("git", "fetch", "--prune", "origin"):                                                         "",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):                          "0 0\n",
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[]`,
+		commandKey("git", "rev-parse", "HEAD"):                                                                  "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		CursorUncertain bool `json:"cursor_uncertain"`
+		LastRecovery    struct {
+			Action string `json:"action"`
+		} `json:"last_recovery"`
+		InFlightAttempt any `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.LastRecovery.Action != "resume" {
+		t.Fatalf("last_recovery.action=%q, want resume", st.LastRecovery.Action)
+	}
+	if st.CursorUncertain {
+		t.Fatalf("expected cursor_uncertain=false for resume recovery")
+	}
+	if st.InFlightAttempt != nil {
+		t.Fatalf("expected in_flight_attempt cleared after resume recovery, got %#v", st.InFlightAttempt)
+	}
+}
+
+func TestRunOnceRecoversInFlightAttemptWithRepairAction(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "issue_triage",
+  "in_flight_attempt": {
+    "run_id": "old-run",
+    "tick_seq": 4,
+    "attempt_index": 1,
+    "max_attempts": 2,
+    "expected_branch": "agent/20260307-120000-next-task",
+    "mode": "managed_pr",
+    "phase": "validated",
+    "prompt_hash": "abc123",
+    "before_head": "deadbeef",
+    "after_head": "deadbeef",
+    "started_at": "2026-03-08T01:00:00Z",
+    "updated_at": "2026-03-08T01:00:00Z"
+  },
+  "updated_at": "2026-03-08T01:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"):      tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):       "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"):      "alice\n",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"): "main\n",
+		commandKey("git", "status", "--porcelain"):             "\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[]`,
+		commandKey("git", "fetch", "--prune", "origin"):                                                         "",
+		commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):                          "0 0\n",
+		commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): `[]`,
+		commandKey("git", "rev-parse", "HEAD"):                                                                  "abcdef\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		CursorUncertain bool `json:"cursor_uncertain"`
+		LastRecovery    struct {
+			Action string `json:"action"`
+		} `json:"last_recovery"`
+		InFlightAttempt any `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.LastRecovery.Action != "repair" {
+		t.Fatalf("last_recovery.action=%q, want repair", st.LastRecovery.Action)
+	}
+	if !st.CursorUncertain {
+		t.Fatalf("expected cursor_uncertain=true after repair recovery")
+	}
+	if st.InFlightAttempt != nil {
+		t.Fatalf("expected in_flight_attempt cleared after repair recovery, got %#v", st.InFlightAttempt)
+	}
+}
+
+func TestRunRecoveryAbortOnDirtyTree(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "issue_triage",
+  "in_flight_attempt": {
+    "run_id": "old-run",
+    "tick_seq": 4,
+    "attempt_index": 1,
+    "max_attempts": 2,
+    "expected_branch": "main",
+    "mode": "issue_triage",
+    "phase": "started",
+    "prompt_hash": "abc123",
+    "before_head": "deadbeef",
+    "started_at": "2026-03-08T01:00:00Z",
+    "updated_at": "2026-03-08T01:00:00Z"
+  },
+  "updated_at": "2026-03-08T01:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"):      tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):       "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"):      "alice\n",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"): "main\n",
+		commandKey("git", "status", "--porcelain"):             " M file.txt\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	err := Run(context.Background(), tmp)
+	if err == nil {
+		t.Fatalf("expected recovery abort error")
+	}
+	if !strings.Contains(err.Error(), "restart recovery abort") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stateData, readErr := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if readErr != nil {
+		t.Fatalf("read state file: %v", readErr)
+	}
+	var st struct {
+		LastRecovery struct {
+			Action string `json:"action"`
+		} `json:"last_recovery"`
+		InFlightAttempt any `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.LastRecovery.Action != "abort" {
+		t.Fatalf("last_recovery.action=%q, want abort", st.LastRecovery.Action)
+	}
+	if st.InFlightAttempt == nil {
+		t.Fatalf("expected in_flight_attempt retained after abort")
+	}
+}
+
 func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Task 5.4a"; then printf 'SIMUG: {"action":"idle","reason":"pending-task bootstrap targeted"}\n'; else printf 'SIMUG: {"action":"done","summary":"missing pending task target","changes":false}\n'; fi`)

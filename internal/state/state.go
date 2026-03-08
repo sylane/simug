@@ -28,6 +28,7 @@ type State struct {
 	PendingTaskID       string      `json:"pending_task_id"`
 	IssueLinks          []IssueLink `json:"issue_links,omitempty"`
 	InFlightAttempt     *Attempt    `json:"in_flight_attempt,omitempty"`
+	LastRecovery        *Recovery   `json:"last_recovery,omitempty"`
 	LastCommentID       int64       `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
 	LastIssueCommentID  int64       `json:"last_issue_comment_id"`
 	LastReviewCommentID int64       `json:"last_review_comment_id"`
@@ -62,6 +63,23 @@ type Attempt struct {
 	ValidationErr  string       `json:"validation_error,omitempty"`
 	StartedAt      time.Time    `json:"started_at"`
 	UpdatedAt      time.Time    `json:"updated_at"`
+}
+
+type RecoveryAction string
+
+const (
+	RecoveryResume RecoveryAction = "resume"
+	RecoveryReplay RecoveryAction = "replay"
+	RecoveryRepair RecoveryAction = "repair"
+	RecoveryAbort  RecoveryAction = "abort"
+)
+
+type Recovery struct {
+	Action     RecoveryAction `json:"action"`
+	Reason     string         `json:"reason"`
+	AttemptRun string         `json:"attempt_run"`
+	AttemptSeq int64          `json:"attempt_tick_seq"`
+	RecordedAt time.Time      `json:"recorded_at"`
 }
 
 type IssueLink struct {
@@ -162,6 +180,14 @@ func (s *State) Normalize() {
 		case AttemptPhaseStarted, AttemptPhaseAgentExited, AttemptPhaseValidated, AttemptPhaseFailed, AttemptPhaseRecovered:
 		default:
 			s.InFlightAttempt = nil
+		}
+	}
+
+	if s.LastRecovery != nil {
+		switch s.LastRecovery.Action {
+		case RecoveryResume, RecoveryReplay, RecoveryRepair, RecoveryAbort:
+		default:
+			s.LastRecovery = nil
 		}
 	}
 }

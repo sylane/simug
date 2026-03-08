@@ -172,6 +172,7 @@ In one-shot mode (`simug run --once`), exactly one tick is executed, state is pe
 Per cycle:
 
 1. Read manager control channel state.
+0. On startup, if `in_flight_attempt` exists, evaluate restart recovery action (`resume`/`replay`/`repair`/`abort`) before entering normal tick flow.
 2. If state is paused by manager:
    - do not start autonomous Codex loop work,
    - allow only manager control operations (`resume`, `status`, optional `abort`),
@@ -427,6 +428,25 @@ Action: bounded repair prompt to Codex (including execution/protocol failure ret
 
 Action: exit with precise error and context.
 
+### 11.3 Restart Recovery State Machine
+
+When startup finds a persisted `in_flight_attempt`, simug deterministically applies one recovery action:
+
+- `resume`:
+  - Preconditions: clean tree, current branch equals expected branch, journal phase is `validated` with no recorded errors.
+  - Effect: clear `in_flight_attempt`, continue normal loop.
+- `replay`:
+  - Preconditions: clean tree, current branch equals expected branch, journal phase indicates interrupted/failed attempt (`started`, `agent_exited`, or `failed`), or validated phase with recorded errors.
+  - Effect: set `cursor_uncertain=true`, clear `in_flight_attempt`, continue with conservative replay semantics.
+- `repair`:
+  - Preconditions: clean tree but branch/phase context is inconsistent (for example expected branch mismatch or unknown phase).
+  - Effect: set `cursor_uncertain=true`, clear `in_flight_attempt`, continue while forcing conservative synchronization checks.
+- `abort`:
+  - Preconditions: invariant check failure during recovery evaluation (for example dirty tree, branch/status inspection failure).
+  - Effect: persist `last_recovery.action=abort`, keep `in_flight_attempt` for diagnosis, and stop fail-closed.
+
+Each decision is persisted in `last_recovery` and emitted as a `recovery_transition` event for auditability.
+
 ## 12. State File
 
 Path: `.simug/state.json`
@@ -471,6 +491,13 @@ Schema (v2):
     "started_at": "2026-03-08T01:00:01Z",
     "updated_at": "2026-03-08T01:00:01Z"
   },
+  "last_recovery": {
+    "action": "replay",
+    "reason": "attempt interrupted before successful validation",
+    "attempt_run": "20260308-010000-12345",
+    "attempt_tick_seq": 7,
+    "recorded_at": "2026-03-08T01:02:00Z"
+  },
   "paused": false,
   "pause_reason": "",
   "last_manager_message_id": "",
@@ -491,6 +518,7 @@ Notes:
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
 - `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
 - `in_flight_attempt` records crash-safe per-attempt execution context before/after each Codex invocation (expected branch, mode, attempt index, prompt hash, pre/post head, error state).
+- `last_recovery` records the latest startup recovery action taken from persisted journal context.
 - `issue_links[*].comment_posted` tracks implementation-time issue-update comment application status.
 - `issue_links[*].finalized` tracks merge-finalization completion for each tracked linkage.
 - `paused=true` blocks autonomous loop progression until explicit resume command.

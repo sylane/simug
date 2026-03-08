@@ -150,10 +150,6 @@ func run(ctx context.Context, startDir string, once bool) error {
 	if st.LastCommentID > 0 && st.LastIssueCommentID == 0 && st.LastReviewCommentID == 0 && st.LastReviewID == 0 {
 		st.CursorUncertain = true
 	}
-	st.UpdatedAt = time.Now().UTC()
-	if err := st.Save(repoRoot); err != nil {
-		return err
-	}
 
 	o := &orchestrator{
 		repoRoot: repoRoot,
@@ -164,6 +160,13 @@ func run(ctx context.Context, startDir string, once bool) error {
 		runner:   agent.Runner{Command: cfg.AgentCommand},
 		logger:   logger,
 		runID:    runID,
+	}
+	if err := o.recoverInterruptedAttempt(ctx); err != nil {
+		return err
+	}
+	st.UpdatedAt = time.Now().UTC()
+	if err := st.Save(repoRoot); err != nil {
+		return err
 	}
 
 	fmt.Printf("repo: %s\n", repo.FullName())

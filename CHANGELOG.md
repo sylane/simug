@@ -34,6 +34,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added merged-PR issue finalization workflow that rehydrates inactive PR state, posts idempotent finalization comments (`simug:issue-finalize:v1`), closes `fixes` issues, and marks tracked issue links finalized.
 - Added lifecycle/adversarial integration coverage for merged-finalization scope rejection, malformed issue linkage payload rejection, and restart-safe progression from managed issue updates to merge finalization.
 - Added crash-safe `in_flight_attempt` journaling in worker state, persisted before/after each Codex invocation with prompt hash, mode, branch, attempt index, pre/post head, and error context.
+- Added deterministic restart recovery state machine (`resume`/`replay`/`repair`/`abort`) that consumes persisted attempt journals, records `last_recovery`, and fail-closes on dirty/inconsistent recovery invariants.
 
 ### Changed
 

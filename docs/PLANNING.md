@@ -209,12 +209,12 @@ Execution note:
   - Scope: persist attempt context before/after each Codex invocation (expected branch, pre/post head, attempt index, prompt hash, runtime mode), aligned with wrapper snapshot/log artifacts.
   - Done when: orchestrator restart can deterministically recover interrupted attempts.
 
-- [ ] **Task 6.4: Restart recovery state machine**
+- [x] **Task 6.4: Restart recovery state machine**
   - Scope: implement explicit recovery transitions for interrupted runs (resume/replay/repair/abort) with invariant checks, consuming `in_flight_attempt` journal phases persisted in 6.3.
   - Done when: restart behavior is deterministic and documented for each failure mode.
 
 - [ ] **Task 6.5: Failure-injection integration tests**
-  - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, restart mid-attempt, and issue-link finalization fault paths (scope rejection + duplicate markers + close failures).
+  - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, restart mid-attempt, recovery action transitions (`resume`/`replay`/`repair`/`abort`), and issue-link finalization fault paths (scope rejection + duplicate markers + close failures).
   - Done when: known failure classes are reproducible and covered by automated tests.
 
 - [ ] **Task 6.5a: Real Codex protocol conformance canary**
