@@ -27,12 +27,23 @@ func TestLoadMissingReturnsEmptyState(t *testing.T) {
 func TestSaveThenLoadRoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	want := &State{
-		Repo:                "owner/repo",
-		ActivePR:            42,
-		ActiveBranch:        "agent/20260307-120000-next-task",
-		Mode:                ModeManagedPR,
-		ActiveIssue:         0,
-		PendingTaskID:       "",
+		Repo:          "owner/repo",
+		ActivePR:      42,
+		ActiveBranch:  "agent/20260307-120000-next-task",
+		Mode:          ModeManagedPR,
+		ActiveIssue:   0,
+		PendingTaskID: "",
+		IssueLinks: []IssueLink{
+			{
+				PRNumber:       42,
+				IssueNumber:    13,
+				Relation:       "fixes",
+				CommentBody:    "Implemented by this PR.",
+				Provenance:     "run=abc tick=1",
+				IdempotencyKey: "k1",
+				RecordedAt:     time.Now().UTC().Truncate(time.Second),
+			},
+		},
 		LastCommentID:       1,
 		LastIssueCommentID:  2,
 		LastReviewCommentID: 3,
@@ -57,6 +68,9 @@ func TestSaveThenLoadRoundTrip(t *testing.T) {
 	}
 	if got.CursorUncertain != want.CursorUncertain {
 		t.Fatalf("cursor uncertain mismatch: got=%v want=%v", got.CursorUncertain, want.CursorUncertain)
+	}
+	if len(got.IssueLinks) != 1 || got.IssueLinks[0].IssueNumber != 13 || got.IssueLinks[0].IdempotencyKey != "k1" {
+		t.Fatalf("issue links mismatch: got=%#v", got.IssueLinks)
 	}
 }
 
@@ -90,5 +104,20 @@ func TestLoadMalformedJSONFails(t *testing.T) {
 	_, err := Load(tmp)
 	if err == nil {
 		t.Fatalf("expected error for malformed json")
+	}
+}
+
+func TestNormalizeFiltersInvalidIssueLinks(t *testing.T) {
+	st := &State{
+		IssueLinks: []IssueLink{
+			{IssueNumber: 0, IdempotencyKey: "bad"},
+			{IssueNumber: 5, IdempotencyKey: ""},
+			{IssueNumber: 6, IdempotencyKey: "ok"},
+		},
+	}
+
+	st.Normalize()
+	if len(st.IssueLinks) != 1 || st.IssueLinks[0].IssueNumber != 6 {
+		t.Fatalf("unexpected filtered issue links: %#v", st.IssueLinks)
 	}
 }

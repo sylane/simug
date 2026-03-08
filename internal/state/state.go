@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"simug/internal/runtimepaths"
@@ -19,18 +20,31 @@ const (
 )
 
 type State struct {
-	Repo                string    `json:"repo"`
-	ActivePR            int       `json:"active_pr"`
-	ActiveBranch        string    `json:"active_branch"`
-	Mode                Mode      `json:"mode"`
-	ActiveIssue         int       `json:"active_issue"`
-	PendingTaskID       string    `json:"pending_task_id"`
-	LastCommentID       int64     `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
-	LastIssueCommentID  int64     `json:"last_issue_comment_id"`
-	LastReviewCommentID int64     `json:"last_review_comment_id"`
-	LastReviewID        int64     `json:"last_review_id"`
-	CursorUncertain     bool      `json:"cursor_uncertain"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	Repo                string      `json:"repo"`
+	ActivePR            int         `json:"active_pr"`
+	ActiveBranch        string      `json:"active_branch"`
+	Mode                Mode        `json:"mode"`
+	ActiveIssue         int         `json:"active_issue"`
+	PendingTaskID       string      `json:"pending_task_id"`
+	IssueLinks          []IssueLink `json:"issue_links,omitempty"`
+	LastCommentID       int64       `json:"last_comment_id"` // Legacy cursor, retained for migration safety.
+	LastIssueCommentID  int64       `json:"last_issue_comment_id"`
+	LastReviewCommentID int64       `json:"last_review_comment_id"`
+	LastReviewID        int64       `json:"last_review_id"`
+	CursorUncertain     bool        `json:"cursor_uncertain"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+}
+
+type IssueLink struct {
+	PRNumber       int       `json:"pr_number"`
+	IssueNumber    int       `json:"issue_number"`
+	Relation       string    `json:"relation"`
+	CommentBody    string    `json:"comment_body"`
+	Provenance     string    `json:"provenance"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	RecordedAt     time.Time `json:"recorded_at"`
+	CommentPosted  bool      `json:"comment_posted"`
+	Finalized      bool      `json:"finalized"`
 }
 
 func Load(repoRoot string) (*State, error) {
@@ -96,5 +110,16 @@ func (s *State) Normalize() {
 	if s.Mode == ModeManagedPR {
 		s.ActiveIssue = 0
 		s.PendingTaskID = ""
+	}
+
+	if len(s.IssueLinks) > 0 {
+		filtered := s.IssueLinks[:0]
+		for _, link := range s.IssueLinks {
+			if link.IssueNumber <= 0 || strings.TrimSpace(link.IdempotencyKey) == "" {
+				continue
+			}
+			filtered = append(filtered, link)
+		}
+		s.IssueLinks = filtered
 	}
 }

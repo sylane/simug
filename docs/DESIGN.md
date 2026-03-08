@@ -424,6 +424,19 @@ Schema (v2):
   "mode": "managed_pr",
   "active_issue": 0,
   "pending_task_id": "",
+  "issue_links": [
+    {
+      "pr_number": 123,
+      "issue_number": 456,
+      "relation": "fixes",
+      "comment_body": "Implemented by this PR.",
+      "provenance": "run=20260308-001500 tick=4",
+      "idempotency_key": "8efc6e...",
+      "recorded_at": "2026-03-08T00:15:04Z",
+      "comment_posted": false,
+      "finalized": false
+    }
+  ],
   "paused": false,
   "pause_reason": "",
   "last_manager_message_id": "",
@@ -442,6 +455,7 @@ Schema (v2):
 Notes:
 
 - `mode` is one of: `managed_pr`, `issue_triage`, `task_bootstrap`.
+- `issue_links` stores PR-scoped issue linkage intents (`fixes`/`impacts`/`relates`) with deterministic idempotency keys for restart-safe orchestration.
 - `paused=true` blocks autonomous loop progression until explicit resume command.
 - `session_strategy` supports future policies such as `fresh_per_task` and `reuse_until_pr_closed`.
 - `last_comment_id` remains for backward compatibility.

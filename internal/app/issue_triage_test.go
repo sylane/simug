@@ -168,3 +168,20 @@ func TestValidateIssueUpdateActionsRejectsInvalidRelation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestIssueUpdateIdempotencyKeyStable(t *testing.T) {
+	action := agent.Action{
+		Type:        agent.ActionIssueUpdate,
+		IssueNumber: 11,
+		Relation:    agent.IssueRelationFixes,
+		CommentBody: "Implemented with test coverage.",
+	}
+	key1 := issueUpdateIdempotencyKey(42, action)
+	key2 := issueUpdateIdempotencyKey(42, action)
+	if key1 == "" || key2 == "" {
+		t.Fatalf("expected non-empty keys")
+	}
+	if key1 != key2 {
+		t.Fatalf("expected stable key, got %q vs %q", key1, key2)
+	}
+}

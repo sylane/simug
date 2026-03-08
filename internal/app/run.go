@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -1116,10 +1118,30 @@ func (o *orchestrator) applyActions(ctx context.Context, prNumber int, actions [
 		case agent.ActionDone, agent.ActionIdle:
 			// Terminal actions are consumed by orchestrator state flow.
 		case agent.ActionIssueUpdate:
-			o.logEvent("issue_update_intent", "accepted issue update intent for later orchestrator processing", map[string]any{
+			key := issueUpdateIdempotencyKey(prNumber, a)
+			if o.hasIssueLinkByKey(key) {
+				o.logEvent("issue_update_intent", "duplicate issue update intent already tracked", map[string]any{
+					"pr":    prNumber,
+					"issue": a.IssueNumber,
+					"key":   key,
+				})
+				continue
+			}
+			link := state.IssueLink{
+				PRNumber:       prNumber,
+				IssueNumber:    a.IssueNumber,
+				Relation:       string(a.Relation),
+				CommentBody:    strings.TrimSpace(a.CommentBody),
+				Provenance:     fmt.Sprintf("run=%s tick=%d", o.runID, o.tickSeq),
+				IdempotencyKey: key,
+				RecordedAt:     time.Now().UTC(),
+			}
+			o.state.IssueLinks = append(o.state.IssueLinks, link)
+			o.logEvent("issue_update_intent", "tracked issue update intent in worker state", map[string]any{
 				"pr":           prNumber,
 				"issue":        a.IssueNumber,
 				"relation":     string(a.Relation),
+				"key":          key,
 				"comment_tail": tailString(strings.TrimSpace(a.CommentBody), 200),
 			})
 		default:
@@ -1127,6 +1149,27 @@ func (o *orchestrator) applyActions(ctx context.Context, prNumber int, actions [
 		}
 	}
 	return nil
+}
+
+func (o *orchestrator) hasIssueLinkByKey(key string) bool {
+	for _, link := range o.state.IssueLinks {
+		if strings.TrimSpace(link.IdempotencyKey) == strings.TrimSpace(key) {
+			return true
+		}
+	}
+	return false
+}
+
+func issueUpdateIdempotencyKey(prNumber int, action agent.Action) string {
+	canonical := fmt.Sprintf(
+		"pr=%d|issue=%d|relation=%s|comment=%s",
+		prNumber,
+		action.IssueNumber,
+		strings.TrimSpace(string(action.Relation)),
+		normalizeOneLine(action.CommentBody),
+	)
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
 }
 
 func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []event, cursorUncertain bool, repairInstruction string) string {

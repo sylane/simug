@@ -176,7 +176,7 @@ Design sync gate for this realignment queue (`7.1`, `7.2`, `7.3`, `5.9`-`5.13`):
   - Scope: extend coordinator prompt contract so Codex can declare issue linkage during task implementation (`fixes`, `impacts`, `relates`) in a machine-parseable way, and can request orchestrator-owned issue comments without direct GitHub mutation; depends on design-alignment execution order above.
   - Done when: orchestrator can parse and validate issue-linkage intent from normal task-development turns, and `docs/DESIGN.md` documents the finalized linkage protocol contract.
 
-- [ ] **Task 5.10: PR-scoped tracked issue ledger in worker state**
+- [x] **Task 5.10: PR-scoped tracked issue ledger in worker state**
   - Scope: persist per-active-PR issue linkage metadata (candidate fixed issues, impacted issues, comment intents, provenance) with restart-safe idempotency keys.
   - Done when: stop/restart never loses which issues are associated with the active PR and pending issue-side actions, and `docs/DESIGN.md` state schema reflects the new fields.
 

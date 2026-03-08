@@ -167,7 +167,7 @@ func TestRunOneManagedTickSuccessWithMockedCommands(t *testing.T) {
 
 func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -184,7 +184,7 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 		commandKey("git", "status", "--porcelain"):                                                 "\n",
 		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
 		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
-		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): "[]",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"please handle issue linkage","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
 		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
 		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
 	}}
@@ -199,6 +199,33 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 
 	if err := Run(ctx, tmp); err != nil {
 		t.Fatalf("Run returned error: %v", err)
+	}
+
+	stateData, err := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if err != nil {
+		t.Fatalf("read state file: %v", err)
+	}
+	var st struct {
+		IssueLinks []struct {
+			PRNumber       int    `json:"pr_number"`
+			IssueNumber    int    `json:"issue_number"`
+			Relation       string `json:"relation"`
+			CommentBody    string `json:"comment_body"`
+			IdempotencyKey string `json:"idempotency_key"`
+		} `json:"issue_links"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if len(st.IssueLinks) != 1 {
+		t.Fatalf("issue_links len=%d, want 1", len(st.IssueLinks))
+	}
+	link := st.IssueLinks[0]
+	if link.PRNumber != 42 || link.IssueNumber != 7 || link.Relation != "fixes" {
+		t.Fatalf("unexpected issue link: %#v", link)
+	}
+	if strings.TrimSpace(link.CommentBody) == "" || strings.TrimSpace(link.IdempotencyKey) == "" {
+		t.Fatalf("expected comment_body and idempotency_key to be populated: %#v", link)
 	}
 }
 
