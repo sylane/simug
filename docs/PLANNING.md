@@ -172,7 +172,7 @@ Design sync gate for this realignment queue (`7.1`, `7.2`, `7.3`, `5.9`-`5.13`):
   - Scope: add tests for authored issue filtering, triage report parsing/validation, planning insertion, issue commenting, PR-backlink idempotency, and fallback to normal next-task flow when no issue is actionable.
   - Done when: issue-first behavior is covered by deterministic automated tests.
 
-- [ ] **Task 5.9: Issue linkage protocol for implementation turns**
+- [x] **Task 5.9: Issue linkage protocol for implementation turns**
   - Scope: extend coordinator prompt contract so Codex can declare issue linkage during task implementation (`fixes`, `impacts`, `relates`) in a machine-parseable way, and can request orchestrator-owned issue comments without direct GitHub mutation; depends on design-alignment execution order above.
   - Done when: orchestrator can parse and validate issue-linkage intent from normal task-development turns, and `docs/DESIGN.md` documents the finalized linkage protocol contract.
 

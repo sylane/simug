@@ -109,6 +109,26 @@ func TestParseActionJSONIssueReportRequiresIssueNumber(t *testing.T) {
 	}
 }
 
+func TestParseActionJSONIssueUpdate(t *testing.T) {
+	a, err := parseActionJSON(`{"action":"issue_update","issue_number":42,"relation":"fixes","comment":"Implemented with tests"}`)
+	if err != nil {
+		t.Fatalf("parseActionJSON returned error: %v", err)
+	}
+	if a.Type != ActionIssueUpdate {
+		t.Fatalf("got type %q, want %q", a.Type, ActionIssueUpdate)
+	}
+	if a.IssueNumber != 42 || a.Relation != IssueRelationFixes || a.CommentBody != "Implemented with tests" {
+		t.Fatalf("unexpected issue_update fields: %#v", a)
+	}
+}
+
+func TestParseActionJSONIssueUpdateRejectsInvalidRelation(t *testing.T) {
+	_, err := parseActionJSON(`{"action":"issue_update","issue_number":42,"relation":"unknown","comment":"x"}`)
+	if err == nil {
+		t.Fatalf("expected error for invalid relation")
+	}
+}
+
 func TestRawOutputFromErrorReturnsRunnerOutput(t *testing.T) {
 	r := Runner{Command: `printf 'oops\n'`}
 	_, err := r.Run(context.Background(), "")

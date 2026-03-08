@@ -129,3 +129,42 @@ func TestBuildIssueTriageCommentBodyIncludesMarkerAndTaskProposal(t *testing.T) 
 		}
 	}
 }
+
+func TestValidateIssueUpdateActionsAcceptsValidUpdates(t *testing.T) {
+	actions := []agent.Action{
+		{
+			Type:        agent.ActionIssueUpdate,
+			IssueNumber: 11,
+			Relation:    agent.IssueRelationFixes,
+			CommentBody: "Implemented in current task.",
+		},
+		{
+			Type:    agent.ActionComment,
+			Body:    "regular PR note",
+			Summary: "",
+		},
+	}
+
+	if err := validateIssueUpdateActions(actions); err != nil {
+		t.Fatalf("validateIssueUpdateActions returned error: %v", err)
+	}
+}
+
+func TestValidateIssueUpdateActionsRejectsInvalidRelation(t *testing.T) {
+	actions := []agent.Action{
+		{
+			Type:        agent.ActionIssueUpdate,
+			IssueNumber: 11,
+			Relation:    "bad",
+			CommentBody: "x",
+		},
+	}
+
+	err := validateIssueUpdateActions(actions)
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "invalid relation") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

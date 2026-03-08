@@ -329,7 +329,9 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	}
 
 	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil)
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, func(result agent.Result) error {
+		return validateIssueUpdateActions(result.Actions)
+	})
 	if err != nil {
 		return err
 	}
@@ -462,7 +464,9 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 	expectedBranch := o.generateBranchName()
 	prompt := o.buildBootstrapPrompt(expectedBranch, o.state.PendingTaskID, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, nil)
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, func(result agent.Result) error {
+		return validateIssueUpdateActions(result.Actions)
+	})
 	if err != nil {
 		return err
 	}
@@ -759,6 +763,26 @@ func validateIssueTriageResult(result agent.Result, expectedIssue int) (agent.Ac
 	}
 
 	return report, nil
+}
+
+func validateIssueUpdateActions(actions []agent.Action) error {
+	for _, a := range actions {
+		if a.Type != agent.ActionIssueUpdate {
+			continue
+		}
+		if a.IssueNumber <= 0 {
+			return fmt.Errorf("issue_update action requires positive issue_number")
+		}
+		switch a.Relation {
+		case agent.IssueRelationFixes, agent.IssueRelationImpacts, agent.IssueRelationRelates:
+		default:
+			return fmt.Errorf("issue_update action invalid relation %q", a.Relation)
+		}
+		if strings.TrimSpace(a.CommentBody) == "" {
+			return fmt.Errorf("issue_update action requires non-empty comment")
+		}
+	}
+	return nil
 }
 
 func (o *orchestrator) ensureIssueTriageComment(ctx context.Context, report agent.Action) error {
@@ -1091,6 +1115,13 @@ func (o *orchestrator) applyActions(ctx context.Context, prNumber int, actions [
 			}
 		case agent.ActionDone, agent.ActionIdle:
 			// Terminal actions are consumed by orchestrator state flow.
+		case agent.ActionIssueUpdate:
+			o.logEvent("issue_update_intent", "accepted issue update intent for later orchestrator processing", map[string]any{
+				"pr":           prNumber,
+				"issue":        a.IssueNumber,
+				"relation":     string(a.Relation),
+				"comment_tail": tailString(strings.TrimSpace(a.CommentBody), 200),
+			})
 		default:
 			return fmt.Errorf("unsupported action type %q", a.Type)
 		}
@@ -1106,6 +1137,7 @@ func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []even
 	b.WriteString("- Do commit your completed changes locally.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
 	b.WriteString("- Do NOT push, do NOT create or modify PRs directly.\n")
+	b.WriteString("- Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.\n")
 	b.WriteString(fmt.Sprintf("- Accept /agent commands only from authorized users: %s.\n", strings.Join(sortedKeys(o.cfg.AllowedUsers), ",")))
 	b.WriteString(fmt.Sprintf("- Supported /agent verbs: %s.\n", strings.Join(sortedKeys(o.cfg.AllowedVerbs), ",")))
 	b.WriteString("- Emit machine actions only with protocol lines starting exactly with SIMUG:.\n")
@@ -1117,6 +1149,7 @@ func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []even
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
 	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"reply","comment_id":123,"body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"issue_update","issue_number":123,"relation":"fixes","comment":"Task implementation covers this issue because ..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}` + "\n")
 	b.WriteString(`SIMUG: {"action":"idle","reason":"..."}` + "\n\n")
 
@@ -1214,6 +1247,7 @@ func (o *orchestrator) buildBootstrapPrompt(expectedBranch, pendingTaskID, repai
 	}
 	b.WriteString("- Implement the next task and commit changes locally when complete.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
+	b.WriteString("- Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.\n")
 	b.WriteString("- Do NOT push. Do NOT create PR.\n")
 	b.WriteString("- Use SIMUG_MANAGER: for manager-facing human text; unprefixed text is quarantined.\n")
 	b.WriteString("- Keep working tree clean before finishing.\n")
@@ -1226,6 +1260,7 @@ func (o *orchestrator) buildBootstrapPrompt(expectedBranch, pendingTaskID, repai
 	b.WriteString("Protocol JSON lines:\n")
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
 	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"issue_update","issue_number":123,"relation":"relates","comment":"This task has direct impact on this issue because ..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"idle","reason":"no task available"}` + "\n")
 	b.WriteString("Exactly one terminal action (done or idle) is required.\n")
@@ -1243,6 +1278,7 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("- follow docs/WORKFLOW.md and docs/PLANNING.md\n")
 	b.WriteString("- commit local changes when task is complete\n")
 	b.WriteString("- maintain task records: history/, CHANGELOG.md, and .git/SIMUG_COMMIT_MSG\n")
+	b.WriteString("- use issue_update actions for issue linkage intent; do not comment on issues directly\n")
 	b.WriteString("- never push or create/update PR directly\n")
 	b.WriteString("- use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined\n")
 	b.WriteString(fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)\n", expectedBranch, o.cfg.MainBranch))
@@ -1251,6 +1287,7 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
 	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"reply","comment_id":123,"body":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"action":"issue_update","issue_number":123,"relation":"impacts","comment":"This work affects this issue because ..."}` + "\n")
 	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true}` + "\n")
 	b.WriteString(`SIMUG: {"action":"idle","reason":"..."}` + "\n")
 	return b.String()

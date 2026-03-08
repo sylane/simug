@@ -165,6 +165,43 @@ func TestRunOneManagedTickSuccessWithMockedCommands(t *testing.T) {
 	}
 }
 
+func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	if err := Run(ctx, tmp); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+}
+
 func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)

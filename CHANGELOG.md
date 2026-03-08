@@ -28,6 +28,7 @@ https://keepachangelog.com/en/1.1.0/
 - Expanded issue-first regression coverage for insertion failures, spoofed-marker handling, pending-task bootstrap targeting, and fallback/no-actionable-issue paths.
 - Added one-shot runtime mode (`simug run --once`) with explicit CLI parsing and exit codes for supervisor-friendly single-tick self-host loops.
 - Added `scripts/self-host-loop.sh` wrapper to rebuild/run one-shot iterations, snapshot `.simug/state.json`, and capture per-iteration logs under `.simug/selfhost/<timestamp>/`.
+- Added protocol support for `issue_update` actions so Codex can declare implementation-time issue linkage intents (`fixes`/`impacts`/`relates`) in machine-parseable form for orchestrator processing.
 
 ### Changed
 

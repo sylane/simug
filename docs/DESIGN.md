@@ -321,6 +321,8 @@ Supported actions:
   - fields: `comment_id`, `body`
 - `issue_report`: report issue triage analysis.
   - fields: `issue_number` (int), `relevant` (bool), `analysis` (string), `needs_task` (bool), optional `task_title`, optional `task_body`
+- `issue_update`: declare implementation-time issue linkage intent for orchestrator-owned issue updates.
+  - fields: `issue_number` (int), `relation` (`fixes` | `impacts` | `relates`), `comment` (string)
 - `done`: terminal success action.
   - fields: `summary`, `changes` (bool), optional `pr_title`, optional `pr_body`
 - `idle`: terminal no-op action.
@@ -340,17 +342,17 @@ Rules:
 This matrix defines how simug reacts to Codex protocol output by mode.
 
 - `managed_pr`:
-  - Allowed non-terminal actions: `comment`, `reply`.
+  - Allowed non-terminal actions: `comment`, `reply`, `issue_update`.
   - Required terminal: exactly one `done` or `idle`.
-  - Orchestrator reaction: validate state; post PR comments/replies; push if branch advanced.
+  - Orchestrator reaction: validate state and issue-update payloads; post PR comments/replies; record issue linkage intent for orchestrator-owned issue handling; push if branch advanced.
 - `issue_triage`:
   - Allowed non-terminal actions: exactly one `issue_report`.
   - Required terminal: exactly one `done` or `idle` after `issue_report`.
   - Orchestrator reaction: validate report fields/mode constraints; post triage comment; transition to bootstrap intent.
 - `task_bootstrap`:
-  - Allowed non-terminal actions: `comment` (optional manager-context signaling through coordinator path).
+  - Allowed non-terminal actions: `comment`, `issue_update` (optional manager-context signaling through coordinator path).
   - Required terminal: exactly one `done` or `idle`.
-  - Orchestrator reaction: validate branch/commit/clean tree; push/create PR on valid `done + changes=true`; keep no-op on valid `idle`.
+  - Orchestrator reaction: validate branch/commit/clean tree and issue-update payloads; push/create PR on valid `done + changes=true`; keep no-op on valid `idle`.
 - Any mode with invalid action set or cardinality:
   - Orchestrator reaction: reject run, emit repair prompt, retry within bounded limit, then fail-closed.
 

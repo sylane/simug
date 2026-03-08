@@ -265,6 +265,7 @@ Codex must emit machine-readable lines:
 SIMUG_MANAGER: <human-friendly manager message>
 SIMUG: {"action":"comment","body":"..."}
 SIMUG: {"action":"reply","comment_id":123,"body":"..."}
+SIMUG: {"action":"issue_update","issue_number":123,"relation":"fixes","comment":"..."}
 SIMUG: {"action":"done","summary":"...","changes":true}
 SIMUG: {"action":"idle","reason":"..."}
 ```
@@ -275,6 +276,7 @@ Rules:
 - malformed protocol is treated as failure,
 - manager-facing human text must use `SIMUG_MANAGER:` prefix,
 - unprefixed non-empty output lines are quarantined by the orchestrator (not treated as protocol),
+- issue-related GitHub mutations stay orchestrator-owned (`issue_update` is intent, not direct mutation),
 - Codex must not push or create PR directly.
 
 ## Typical Dev Loop (Self-Hosted)

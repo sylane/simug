@@ -22,8 +22,17 @@ const (
 	ActionComment     ActionType = "comment"
 	ActionReply       ActionType = "reply"
 	ActionIssueReport ActionType = "issue_report"
+	ActionIssueUpdate ActionType = "issue_update"
 	ActionDone        ActionType = "done"
 	ActionIdle        ActionType = "idle"
+)
+
+type IssueRelation string
+
+const (
+	IssueRelationFixes   IssueRelation = "fixes"
+	IssueRelationImpacts IssueRelation = "impacts"
+	IssueRelationRelates IssueRelation = "relates"
 )
 
 type Action struct {
@@ -41,6 +50,8 @@ type Action struct {
 	NeedsTask   bool
 	TaskTitle   string
 	TaskBody    string
+	Relation    IssueRelation
+	CommentBody string
 }
 
 type Result struct {
@@ -244,6 +255,25 @@ func parseActionJSON(raw string) (Action, error) {
 		a.NeedsTask = needsTask
 		a.TaskTitle = stringField(payload, "task_title")
 		a.TaskBody = stringField(payload, "task_body")
+	case ActionIssueUpdate:
+		issueNumber, err := int64Field(payload, "issue_number")
+		if err != nil {
+			return Action{}, fmt.Errorf("issue_update action invalid issue_number: %w", err)
+		}
+		if issueNumber <= 0 {
+			return Action{}, fmt.Errorf("issue_update action requires positive issue_number")
+		}
+		relation := IssueRelation(strings.TrimSpace(stringField(payload, "relation")))
+		if !isValidIssueRelation(relation) {
+			return Action{}, fmt.Errorf("issue_update action invalid relation %q", relation)
+		}
+		commentBody := stringField(payload, "comment")
+		if strings.TrimSpace(commentBody) == "" {
+			return Action{}, fmt.Errorf("issue_update action requires non-empty comment")
+		}
+		a.IssueNumber = int(issueNumber)
+		a.Relation = relation
+		a.CommentBody = commentBody
 	case ActionIdle:
 		a.Reason = stringField(payload, "reason")
 	default:
@@ -251,6 +281,15 @@ func parseActionJSON(raw string) (Action, error) {
 	}
 
 	return a, nil
+}
+
+func isValidIssueRelation(relation IssueRelation) bool {
+	switch relation {
+	case IssueRelationFixes, IssueRelationImpacts, IssueRelationRelates:
+		return true
+	default:
+		return false
+	}
 }
 
 func stringField(payload map[string]any, key string) string {
