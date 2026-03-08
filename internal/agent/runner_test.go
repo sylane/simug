@@ -165,3 +165,53 @@ func TestRunnerRunCapturesManagerAndQuarantinedLines(t *testing.T) {
 		t.Fatalf("terminal=%q, want %q", result.Terminal.Type, ActionDone)
 	}
 }
+
+func TestRunnerRunCollapsesDuplicatedTerminalSequenceFromTranscript(t *testing.T) {
+	r := Runner{Command: `printf '%s\n' \
+'OpenAI Codex v0.111.0' \
+'codex' \
+'SIMUG: {"action":"comment","body":"same"}' \
+'SIMUG: {"action":"done","summary":"ok","changes":false}' \
+'tokens used' \
+'2,385' \
+'SIMUG: {"action":"comment","body":"same"}' \
+'SIMUG: {"action":"done","summary":"ok","changes":false}'`}
+
+	result, err := r.Run(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.Actions) != 2 {
+		t.Fatalf("actions=%d, want 2 after collapse", len(result.Actions))
+	}
+	if result.Terminal.Type != ActionDone {
+		t.Fatalf("terminal=%q, want %q", result.Terminal.Type, ActionDone)
+	}
+}
+
+func TestRunnerRunKeepsDistinctMultipleTerminalResponsesAsError(t *testing.T) {
+	r := Runner{Command: `printf '%s\n' \
+'SIMUG: {"action":"comment","body":"first"}' \
+'SIMUG: {"action":"done","summary":"ok","changes":false}' \
+'SIMUG: {"action":"comment","body":"second"}' \
+'SIMUG: {"action":"done","summary":"ok","changes":false}'`}
+
+	_, err := r.Run(context.Background(), "")
+	if err == nil {
+		t.Fatalf("expected error for distinct multiple terminal responses")
+	}
+	if !strings.Contains(err.Error(), "exactly one terminal action") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunnerRunAcceptsValidProtocolDespiteNonZeroExit(t *testing.T) {
+	r := Runner{Command: `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'; exit 1`}
+	result, err := r.Run(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if result.Terminal.Type != ActionDone {
+		t.Fatalf("terminal=%q, want %q", result.Terminal.Type, ActionDone)
+	}
+}

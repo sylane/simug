@@ -303,6 +303,7 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 - For Codex commands, startup performs a preflight help probe and fails fast with actionable diagnostics for missing CLI, auth errors, or unwritable Codex runtime paths.
 - Orchestrator sends a structured prompt through stdin.
 - Orchestrator captures stdout/stderr for protocol parsing and diagnostics.
+- If Codex exits non-zero but emitted a valid protocol transcript with exactly one terminal action, orchestrator uses the validated protocol result; otherwise command failure remains fatal with diagnostics.
 
 ### 8.2 Mandatory behavioral constraints given to Codex
 
@@ -351,6 +352,7 @@ Rules:
 
 - Exactly one terminal action (`done` or `idle`) must be emitted.
 - Non-terminal actions may appear before terminal action.
+- If raw runtime output repeats an identical full protocol sequence (for example transcript echo from `codex exec`), orchestrator collapses duplicates to the final identical sequence; distinct multiple terminal sequences still fail.
 - In `issue_triage` mode, exactly one `issue_report` must be emitted before terminal action.
 - Every manager-facing message must use `SIMUG_MANAGER:` prefix.
 - Unprefixed free text is treated as diagnostic noise, not routed to manager.

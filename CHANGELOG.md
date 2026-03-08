@@ -48,6 +48,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added explicit startup trace of resolved `agent_command` in runtime output/event log metadata for easier Codex integration diagnosis.
 - Added Codex runtime diagnostics classification for common failures (auth/permission/command-not-found) so runner errors include actionable hints.
 - Added Codex preflight checks in startup and canary scripts to fail fast on auth/path-permission blockers before orchestration/canary execution.
+- Added protocol-sequence collapse for real Codex transcript echoes so identical repeated terminal sequences are normalized to one final actionable sequence.
+- Added protocol-first runner recovery so non-zero Codex exits are accepted when emitted output is still fully parseable and protocol-valid.
 
 ### Changed
 

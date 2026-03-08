@@ -102,47 +102,39 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 	cmd.Stdin = strings.NewReader(prompt)
 	out, err := cmd.CombinedOutput()
 	raw := string(out)
+	parsed, parseErr := parseRoutedOutput(raw)
+	if parseErr == nil {
+		parsed.Actions = collapseDuplicateTerminalSequences(parsed.Actions)
+	}
+
 	if err != nil {
+		if parseErr == nil {
+			result, resultErr := buildResultFromParsed(raw, parsed)
+			if resultErr == nil {
+				return result, nil
+			}
+			parseErr = resultErr
+		}
+
 		cause := fmt.Errorf("agent command failed: %w: %s", err, strings.TrimSpace(raw))
 		if hint := CodexRuntimeHint(r.Command, raw); hint != "" {
 			cause = fmt.Errorf("%w | hint: %s", cause, hint)
+		}
+		if parseErr != nil {
+			cause = fmt.Errorf("%w | protocol recovery failed: %v", cause, parseErr)
 		}
 		return Result{}, &RunError{
 			Cause:     cause,
 			RawOutput: raw,
 		}
 	}
-
-	parsed, err := parseRoutedOutput(raw)
-	if err != nil {
+	if parseErr != nil {
 		return Result{}, &RunError{
-			Cause:     err,
+			Cause:     parseErr,
 			RawOutput: raw,
 		}
 	}
-
-	terminalCount := 0
-	var terminal Action
-	for _, a := range parsed.Actions {
-		if a.Type == ActionDone || a.Type == ActionIdle {
-			terminalCount++
-			terminal = a
-		}
-	}
-	if terminalCount != 1 {
-		return Result{}, &RunError{
-			Cause:     fmt.Errorf("agent protocol requires exactly one terminal action (done or idle), got %d", terminalCount),
-			RawOutput: raw,
-		}
-	}
-
-	return Result{
-		RawOutput:        raw,
-		Actions:          parsed.Actions,
-		Terminal:         terminal,
-		ManagerMessages:  parsed.ManagerMessages,
-		QuarantinedLines: parsed.QuarantinedLines,
-	}, nil
+	return buildResultFromParsed(raw, parsed)
 }
 
 func parseActions(raw string) ([]Action, error) {
@@ -194,6 +186,72 @@ func parseRoutedOutput(raw string) (parsedOutput, error) {
 		return parsedOutput{}, fmt.Errorf("agent output missing protocol lines (expected lines beginning with %q)", protocolPrefixCurrent)
 	}
 	return out, nil
+}
+
+func collapseDuplicateTerminalSequences(actions []Action) []Action {
+	terminalIndexes := make([]int, 0, 2)
+	for i, a := range actions {
+		if a.Type == ActionDone || a.Type == ActionIdle {
+			terminalIndexes = append(terminalIndexes, i)
+		}
+	}
+	if len(terminalIndexes) < 2 {
+		return actions
+	}
+
+	sequences := make([][]Action, 0, len(terminalIndexes))
+	start := 0
+	for _, terminalIndex := range terminalIndexes {
+		sequence := make([]Action, terminalIndex-start+1)
+		copy(sequence, actions[start:terminalIndex+1])
+		sequences = append(sequences, sequence)
+		start = terminalIndex + 1
+	}
+	if start != len(actions) {
+		return actions
+	}
+
+	last := sequences[len(sequences)-1]
+	for i := 0; i < len(sequences)-1; i++ {
+		if !actionSequenceEqual(sequences[i], last) {
+			return actions
+		}
+	}
+	return last
+}
+
+func actionSequenceEqual(a, b []Action) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func buildResultFromParsed(raw string, parsed parsedOutput) (Result, error) {
+	terminalCount := 0
+	var terminal Action
+	for _, a := range parsed.Actions {
+		if a.Type == ActionDone || a.Type == ActionIdle {
+			terminalCount++
+			terminal = a
+		}
+	}
+	if terminalCount != 1 {
+		return Result{}, fmt.Errorf("agent protocol requires exactly one terminal action (done or idle), got %d", terminalCount)
+	}
+
+	return Result{
+		RawOutput:        raw,
+		Actions:          parsed.Actions,
+		Terminal:         terminal,
+		ManagerMessages:  parsed.ManagerMessages,
+		QuarantinedLines: parsed.QuarantinedLines,
+	}, nil
 }
 
 func parseActionJSON(raw string) (Action, error) {

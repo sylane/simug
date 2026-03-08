@@ -258,7 +258,7 @@ Execution note:
   - Scope: add deterministic preflight checks and actionable failure messages for common Codex runtime blockers (missing command, auth missing/invalid, unwritable Codex home/cache paths including `~/.codex/tmp/arg0` style permission failures) without taking ownership of Codex account setup.
   - Done when: canary/simug startup failures surface precise diagnostics that identify environment fix actions instead of opaque command errors.
 
-- [ ] **Task 6.10c: Environment-configured Codex compatibility + passing real-Codex gate**
+- [x] **Task 6.10c: Environment-configured Codex compatibility + passing real-Codex gate**
   - Scope: make simug real-runtime integration work with environment-configured Codex out of the box (`codex exec` default path), including robust parsing/ingestion of real Codex output and elimination of known protocol false failures in canary flows.
   - Done when: `scripts/canary-real-codex-gate.sh` passes in a standard environment-configured Codex setup without requiring custom `CODEX_HOME`/`CODEX_SQLITE_HOME` overrides.
 

@@ -59,7 +59,7 @@ func TestRealCodexRepairInteractionCanary(t *testing.T) {
 		"If this prompt contains 'Violation:' output exactly:",
 		`SIMUG: {"action":"done","summary":"repair canary ok","changes":false}`,
 		"Otherwise output exactly:",
-		`SIMUG: {bad-json}`,
+		`MALFORMED: {bad-json}`,
 		"No extra text.",
 	}, "\n")
 
