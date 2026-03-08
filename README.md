@@ -14,8 +14,8 @@ It watches one GitHub PR lane at a time, feeds new PR events/comments to Codex, 
 
 Contract:
 
-- `simug` owns repository and GitHub side effects (push, PR/comment mutations, task progression).
-- Codex produces protocol output and code changes, but does not directly mutate GitHub.
+- `simug` owns coordination and GitHub side effects (push, PR/comment mutations, issue analysis comments, PR linking).
+- Codex produces protocol output and repository content changes; `simug` should not directly edit project planning/workflow/source files.
 - Manager steering enters through authorized commands/comments and is validated by `simug`.
 - Protocol and repository-state validations must pass before `simug` performs remote mutations.
 - State is persisted so the loop can stop/restart safely and resume deterministically.

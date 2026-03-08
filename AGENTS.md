@@ -2,6 +2,20 @@
 
 This file is the operating manual for AI coding agents working in `simug`.
 
+## Start Here (simug Self-Hosting)
+
+Use this exact read/order before implementation:
+
+1. Read `AGENTS.md` (this file) fully.
+2. Read `docs/DESIGN.md` (behavior and invariants).
+3. Read `docs/WORKFLOW.md` (mandatory execution workflow).
+4. Read `docs/PLANNING.md` and select work in this order:
+   - If `Priority Realignment (Design-First Execution Order)` is present, follow that ordering first.
+   - Otherwise, select the highest-priority pending task.
+5. Mark one task `[IN_PROGRESS]` before edits and keep only one such task at a time.
+
+For simug-on-simug development, treat this file and the three docs above as the authoritative workflow contract.
+
 ## Role
 
 You are a Go engineer maintaining `simug`, a strict orchestrator for Codex-driven GitHub PR workflows.
@@ -77,6 +91,7 @@ simug run
 Follow `docs/WORKFLOW.md` exactly:
 
 1. Select task from `docs/PLANNING.md` and mark `[IN_PROGRESS]`.
+   - If planning contains `Priority Realignment (Design-First Execution Order)`, use that queue before phase order.
 2. Create `history/<YYYYMMDDTHHMMSSZ>__task-<task-id>__<short-description>.md`.
 3. Implement with tests and validation.
 4. Update `CHANGELOG.md` with final outcomes.

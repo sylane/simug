@@ -28,3 +28,11 @@ https://keepachangelog.com/en/1.1.0/
 - Expanded issue-first regression coverage for insertion failures, spoofed-marker handling, pending-task bootstrap targeting, and fallback/no-actionable-issue paths.
 - Added one-shot runtime mode (`simug run --once`) with explicit CLI parsing and exit codes for supervisor-friendly single-tick self-host loops.
 - Added `scripts/self-host-loop.sh` wrapper to rebuild/run one-shot iterations, snapshot `.simug/state.json`, and capture per-iteration logs under `.simug/selfhost/<timestamp>/`.
+
+### Changed
+
+- Reworked planning roadmap by inserting a dedicated maintainability/modularity/safety hardening phase between self-host readiness and environment/release readiness, and renumbered later phases accordingly.
+- Clarified design/README ownership boundary that orchestrator should not directly edit project planning/workflow/source files; repository content updates are Codex-authored through normal commits.
+- Extended issue roadmap with post-triage lifecycle tasks (protocol linkage during implementation, PR-scoped issue ledger, orchestrator-owned issue updates, and close-on-merge finalization).
+- Added design-first execution ordering in planning to prioritize ownership-boundary and issue-lifecycle completion before remaining self-hosting milestones.
+- Expanded design document with feasibility assessment, explicit known gaps, issue lifecycle target behavior, and mode-to-action handling matrix.

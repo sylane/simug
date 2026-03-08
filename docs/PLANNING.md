@@ -13,6 +13,31 @@ Status convention:
 - IN_PROGRESS: `- [ ] **[IN_PROGRESS] Task ...**`
 - DONE: `- [x] **Task ...**`
 
+## Priority Realignment (Design-First Execution Order)
+
+When phase ordering conflicts with design alignment, execute tasks in this order:
+
+1. Task 7.1 (remove orchestrator direct project-file mutation paths)
+2. Task 7.2 (Codex-mediated issue-task intake instead of planner insertion)
+3. Task 7.3 (optional bootstrap context; no hard-required docs format)
+4. Task 5.9 (issue linkage protocol in implementation turns)
+5. Task 5.10 (PR-scoped tracked issue ledger)
+6. Task 5.12 (close-on-merge issue finalization)
+7. Task 5.11 (development-time issue impact/fix comments)
+8. Task 5.13 (full lifecycle integration + adversarial tests)
+9. Task 6.5a (real Codex protocol conformance canary)
+10. Task 6.5b (real Codex repair/restart interaction canary)
+11. Task 6.5c (real Codex validation gate integration)
+12. Task 6.3+ (remaining self-hosting continuation)
+
+Rationale:
+- Design requires orchestrator/project ownership boundary first.
+- Issue lifecycle completion should be in place before deeper self-hosting and interactive/session expansions.
+
+Design sync gate for this realignment queue (`7.1`, `7.2`, `7.3`, `5.9`-`5.13`):
+- Do not mark task DONE unless `docs/DESIGN.md` is updated to reflect final behavior and remove/adjust transitional notes impacted by that task.
+- Update `AGENTS.md`/`docs/WORKFLOW.md` in the same commit when operator workflow or task-selection behavior changes.
+
 ## Phase 1: Core Orchestration Safety
 
 - [x] **Task 1.1: Single-process lock and persistent worker state**
@@ -147,7 +172,30 @@ Status convention:
   - Scope: add tests for authored issue filtering, triage report parsing/validation, planning insertion, issue commenting, PR-backlink idempotency, and fallback to normal next-task flow when no issue is actionable.
   - Done when: issue-first behavior is covered by deterministic automated tests.
 
+- [ ] **Task 5.9: Issue linkage protocol for implementation turns**
+  - Scope: extend coordinator prompt contract so Codex can declare issue linkage during task implementation (`fixes`, `impacts`, `relates`) in a machine-parseable way, and can request orchestrator-owned issue comments without direct GitHub mutation; depends on design-alignment execution order above.
+  - Done when: orchestrator can parse and validate issue-linkage intent from normal task-development turns, and `docs/DESIGN.md` documents the finalized linkage protocol contract.
+
+- [ ] **Task 5.10: PR-scoped tracked issue ledger in worker state**
+  - Scope: persist per-active-PR issue linkage metadata (candidate fixed issues, impacted issues, comment intents, provenance) with restart-safe idempotency keys.
+  - Done when: stop/restart never loses which issues are associated with the active PR and pending issue-side actions, and `docs/DESIGN.md` state schema reflects the new fields.
+
+- [ ] **Task 5.11: Orchestrator-owned issue updates during development**
+  - Scope: apply validated issue-update intents as orchestrator comments on issues (same authenticated-user scope first), including references to planning/task context and deterministic dedupe markers.
+  - Done when: Codex can surface relevant issue impact/fix context and orchestrator posts it idempotently, and `docs/DESIGN.md` documents comment semantics/idempotency markers.
+
+- [ ] **Task 5.12: Close-on-merge issue finalization workflow**
+  - Scope: when managed PR is detected merged, orchestrator comments on tracked fixed issues with PR reference, then closes those issues idempotently; non-fixed impacted issues receive informational-only comments.
+  - Done when: merged PRs automatically finalize tracked fixed issues without duplicate comments/closures across restarts, and `docs/DESIGN.md` explicitly describes merge-triggered closure policy.
+
+- [ ] **Task 5.13: Lifecycle integration + adversarial tests**
+  - Scope: add tests for protocol parsing, state persistence across restart, unauthorized issue attempts, malformed linkage payloads, merged-PR finalization, and duplicate-suppression behavior.
+  - Done when: issue lifecycle (triage -> implementation updates -> merge finalization) is deterministically covered by automated tests, with design/workflow docs updated for any contract changes discovered.
+
 ## Phase 6: Self-Hosting Readiness (Priority)
+
+Execution note:
+- Resume remaining Phase 6 tasks after the design-alignment queue above is complete.
 
 - [x] **Task 6.1: Single-task self-host run mode**
   - Scope: add a dedicated mode (for example `simug run --once`) that completes one task/tick, persists state, then exits with explicit status codes for supervisor scripts.
@@ -166,11 +214,23 @@ Status convention:
   - Done when: restart behavior is deterministic and documented for each failure mode.
 
 - [ ] **Task 6.5: Failure-injection integration tests**
-  - Scope: add tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, and restart mid-attempt.
+  - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, and restart mid-attempt.
   - Done when: known failure classes are reproducible and covered by automated tests.
 
-- [ ] **Task 6.6: Live GitHub dry-run on a sandbox repo**
-  - Scope: validate issue-first intake plus polling/replies/push/PR transitions end-to-end with real API.
+- [ ] **Task 6.5a: Real Codex protocol conformance canary**
+  - Scope: run scripted canary scenarios against a real Codex runtime (not shell fixtures) to validate protocol parseability, channel prefix discipline, and terminal-action cardinality under managed/triage/bootstrap prompts.
+  - Done when: canary provides repeatable pass/fail results with archived prompt/output artifacts for debugging failures.
+
+- [ ] **Task 6.5b: Real Codex repair/restart interaction canary**
+  - Scope: execute real Codex runs that intentionally trigger repair paths and one-shot restart/resume boundaries, validating orchestrator recovery semantics with live agent behavior.
+  - Done when: repair/restart behavior with real Codex is reproducibly validated across scripted interruption scenarios.
+
+- [ ] **Task 6.5c: Real Codex validation gate integration**
+  - Scope: integrate real Codex canaries into operator/release workflow (manual gate and/or scheduled gate) with clear prerequisites, cost/runtime expectations, and artifact retention.
+  - Done when: release readiness requires recent successful real Codex validation evidence.
+
+- [ ] **Task 6.6: Live GitHub + real Codex dry-run on a sandbox repo**
+  - Scope: validate issue-first intake plus polling/replies/push/PR transitions end-to-end with real GitHub API and real Codex runtime.
   - Done when: at least one issue-driven and one planning-driven PR lifecycle complete without manual state repair.
 
 - [ ] **Task 6.7: End-to-end self-hosting canary workflow**
@@ -185,72 +245,110 @@ Status convention:
   - Scope: run scripted stop/restart/crash-style interruption scenarios at different loop points and verify safe recovery invariants (branch, clean tree, state mode, active PR/issue coherence).
   - Done when: worker is demonstrably safe to stop/restart at arbitrary points without desynchronizing state.
 
-## Phase 7: Environment and Release Readiness
+## Phase 7: Maintainability, Modularity, and Safety Hardening (Priority)
 
-- [ ] **Task 7.1: Tooling gate enablement in CI/local dev image**
+- [ ] **Task 7.1: Enforce orchestrator/project ownership boundary**
+  - Scope: remove direct orchestrator writes to project workflow/planning/source files (starting with `docs/PLANNING.md` insertion), keeping project edits Codex-authored via normal commits while simug writes only `.simug/*` runtime artifacts and orchestrator-owned GitHub mutations.
+  - Done when: a runtime write-path audit confirms non-test orchestrator writes are limited to `.simug/*`, and `docs/DESIGN.md` no longer carries stale divergence wording for this boundary.
+
+- [ ] **Task 7.2: Replace planner insertion with Codex-mediated issue-task intake**
+  - Scope: change issue-triage flow so `issue_report.needs_task=true` produces coordinator intent and bootstrap instructions, not markdown parsing/insertion by simug.
+  - Done when: issue-derived work can proceed end-to-end without simug parsing or editing planning files, and `docs/DESIGN.md`/`docs/WORKFLOW.md` describe the finalized Codex-mediated flow.
+
+- [ ] **Task 7.3: Bootstrap context abstraction (no hard-required docs format)**
+  - Scope: make prompt bootstrap context optional/discoverable and configurable per repo, with no hard dependency on `docs/WORKFLOW.md` or `docs/PLANNING.md` existence/format.
+  - Done when: simug orchestrates safely in repositories that do not provide these files, and `docs/DESIGN.md` + `AGENTS.md` clarify guidance-file handling and fallback behavior.
+
+- [ ] **Task 7.4: Modularize orchestration loop**
+  - Scope: split `internal/app/run.go` mode handlers, validation stages, and mutation/application paths into focused components.
+  - Done when: orchestration logic has smaller cohesive units with dedicated tests and reduced duplication.
+
+- [ ] **Task 7.5: Single-source prompt contract**
+  - Scope: centralize protocol instructions/examples so runtime prompt builders and prompt tests use shared constants/renderers.
+  - Done when: prompt contract drift is caught without duplicated literal maintenance across code/tests.
+
+- [ ] **Task 7.6: Idempotent GitHub mutation primitives**
+  - Scope: extract shared marker/comment dedupe patterns used by issue analysis and issue-to-PR backlink flows into reusable helpers.
+  - Done when: mutation idempotency logic is uniform and no longer duplicated across orchestrator paths.
+
+- [ ] **Task 7.7: Integration test harness consolidation**
+  - Scope: reduce fixture and setup duplication in integration tests with helper builders and explicit scenario matrices.
+  - Done when: adding new orchestration scenarios requires minimal boilerplate while preserving determinism.
+
+- [ ] **Task 7.8: Reliability and coverage uplift gates**
+  - Scope: increase coverage in low-coverage packages (`internal/git`, `internal/github`, `internal/runtimepaths`) and add deterministic failure-injection tests for restart/protocol/command failure classes.
+  - Done when: documented coverage/failure-matrix gates are enforced in local and CI validation flows.
+
+- [ ] **Task 7.9: Protocol robustness fuzz/property tests**
+  - Scope: add fuzz/property-driven tests for dual-channel protocol parsing (`SIMUG:` / `SIMUG_MANAGER:`), terminal-action cardinality, and malformed JSON handling.
+  - Done when: parser robustness regressions are caught by automated fuzz/property checks.
+
+## Phase 8: Environment and Release Readiness
+
+- [ ] **Task 8.1: Tooling gate enablement in CI/local dev image**
   - Scope: ensure `go`, `gofmt`, and `gh` availability where checks run.
   - Done when: required runtime/build tools are consistently present.
 
-- [ ] **Task 7.2: Run full verification gates in tool-enabled environment**
+- [ ] **Task 8.2: Run full verification gates in tool-enabled environment**
   - Scope: `gofmt -w`, `go test ./...`, and manual `simug run` smoke flow.
   - Done when: all gates pass with evidence.
 
-## Phase 8: Codex Session Foundations
+## Phase 9: Codex Session Foundations
 
-- [ ] **Task 8.1: Agent runtime abstraction (one-shot vs session-backed)**
+- [ ] **Task 9.1: Agent runtime abstraction (one-shot vs session-backed)**
   - Scope: introduce an interface for Codex runtimes so orchestrator can swap current subprocess runner for a session-capable backend without changing core PR logic.
   - Done when: orchestration flow compiles/tests against runtime abstraction and current behavior remains unchanged by default.
 
-- [ ] **Task 8.2: PR-to-session continuity model**
+- [ ] **Task 9.2: PR-to-session continuity model**
   - Scope: formalize mapping of managed PR lane to Codex thread lifecycle (create/resume/fork/close) and recovery semantics after crashes.
   - Done when: each PR has deterministic Codex session lineage and restart recovery rules.
 
-- [ ] **Task 8.3: Codex app-server integration prototype**
+- [ ] **Task 9.3: Codex app-server integration prototype**
   - Scope: add runtime adapter for `codex app-server` JSON-RPC over stdio using `thread/start`, `thread/resume`, `turn/start`, and `turn/steer`.
   - Done when: one managed PR task loop can run end-to-end through app-server APIs.
 
-- [ ] **Task 8.4: Structured Codex event ingestion**
+- [ ] **Task 9.4: Structured Codex event ingestion**
   - Scope: support `codex exec --json` event stream parsing as a first-class input path (thread/turn/item events + final message extraction), while preserving `SIMUG:` action protocol validation.
   - Done when: orchestrator can consume structured JSONL events and still deterministically extract terminal actions.
 
-- [ ] **Task 8.5: Persist Codex session identity in worker state**
+- [ ] **Task 9.5: Persist Codex session identity in worker state**
   - Scope: extend `.simug/state.json` with Codex thread/session metadata (thread id, runtime mode, last turn id, optional rollout path), keyed to active PR/branch.
   - Done when: worker restart can recover the same Codex session context from persisted state.
 
-- [ ] **Task 8.6: Resume-on-restart for Codex sessions**
+- [ ] **Task 9.6: Resume-on-restart for Codex sessions**
   - Scope: resume the correct Codex session for managed PR flow after orchestrator restart instead of starting a fresh context each tick.
   - Done when: restart during an active PR preserves Codex conversational continuity.
 
-- [ ] **Task 8.7: Local transcript with actor attribution**
+- [ ] **Task 9.7: Local transcript with actor attribution**
   - Scope: add structured transcript log/output model that distinguishes `orchestrator`, `manager`, and `codex` messages (plus tool/command events).
   - Done when: operators can replay and audit a run with clear actor boundaries.
 
-- [ ] **Task 8.8: Session strategy policy (fresh vs reused)**
+- [ ] **Task 9.8: Session strategy policy (fresh vs reused)**
   - Scope: define and implement configurable session strategy (`fresh_per_task` vs `reuse_until_pr_closed`) with explicit defaults and state persistence semantics.
   - Done when: strategy can be selected intentionally and behaves deterministically across task loops.
 
-- [ ] **Task 8.9: Session lifecycle test matrix**
+- [ ] **Task 9.9: Session lifecycle test matrix**
   - Scope: add automated tests covering fresh session per task, reused session across loops, and resumed session after restart/interruption.
   - Done when: session management behavior is verified across all supported lifecycle paths.
 
-## Phase 9: Interactive Parity and Manager Pinch-In
+## Phase 10: Interactive Parity and Manager Pinch-In
 
-- [ ] **Task 9.1: Dual-entity communication protocol and prompt contract**
+- [ ] **Task 10.1: Dual-entity communication protocol and prompt contract**
   - Scope: formalize coordinator vs manager interaction contract, including how coordinator instructs Codex about both entities and mandatory output prefixes (`SIMUG:` vs `SIMUG_MANAGER:`).
   - Done when: Codex interaction is explicitly multiplexed with machine-friendly and human-friendly channels.
 
-- [ ] **Task 9.2: Live console stream with channel filtering**
+- [ ] **Task 10.2: Live console stream with channel filtering**
   - Scope: stream Codex conversation/events in real time while filtering/routing coordinator protocol vs manager-facing text cleanly in console output.
   - Done when: operator sees meaningful manager-facing output without protocol noise, and coordinator keeps full machine trace.
 
-- [ ] **Task 9.3: Manager control channel (pause/message/resume)**
+- [ ] **Task 10.3: Manager control channel (pause/message/resume)**
   - Scope: implement manager commands to pause autonomous loop, send steer messages to Codex, and resume execution with strict authorization/audit logging.
   - Done when: sending manager message pauses loop deterministically until explicit resume.
 
-- [ ] **Task 9.4: Terminal interaction bridge**
+- [ ] **Task 10.4: Terminal interaction bridge**
   - Scope: support pass-through for terminal interaction events and control (`command/exec`, write/resize/terminate) where needed for manager-assisted flows.
   - Done when: manager/orchestrator can observe and, when authorized, interact with running command sessions.
 
-- [ ] **Task 9.5: Compatibility + migration tests**
+- [ ] **Task 10.5: Compatibility + migration tests**
   - Scope: regression suite covering legacy one-shot runner, new session-backed runner, pause/resume manager channel, and interactive/session-migration scenarios.
   - Done when: migration to session-backed interactive mode is verified without regression in safety invariants.
