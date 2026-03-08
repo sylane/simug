@@ -217,12 +217,12 @@ Execution note:
   - Scope: add deterministic tests for malformed protocol, partial Codex output, no/multiple terminal actions, git/gh command failures, restart mid-attempt, recovery action transitions (`resume`/`replay`/`repair`/`abort`), and issue-link finalization fault paths (scope rejection + duplicate markers + close failures).
   - Done when: known failure classes are reproducible and covered by automated tests.
 
-- [ ] **Task 6.5a: Real Codex protocol conformance canary**
+- [x] **Task 6.5a: Real Codex protocol conformance canary**
   - Scope: run scripted canary scenarios against a real Codex runtime (not shell fixtures) to validate protocol parseability, channel prefix discipline, terminal-action cardinality, and malformed/partial output handling under managed/triage/bootstrap prompts.
   - Done when: canary provides repeatable pass/fail results with archived prompt/output artifacts for debugging failures.
 
 - [ ] **Task 6.5b: Real Codex repair/restart interaction canary**
-  - Scope: execute real Codex runs that intentionally trigger repair paths and one-shot restart/resume boundaries, validating orchestrator recovery semantics with live agent behavior.
+  - Scope: execute real Codex runs that intentionally trigger repair paths and one-shot restart/resume boundaries, validating orchestrator recovery semantics with live agent behavior and artifact continuity from 6.5a canary roots.
   - Done when: repair/restart behavior with real Codex is reproducibly validated across scripted interruption scenarios.
 
 - [ ] **Task 6.5c: Real Codex validation gate integration**

@@ -36,6 +36,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added crash-safe `in_flight_attempt` journaling in worker state, persisted before/after each Codex invocation with prompt hash, mode, branch, attempt index, pre/post head, and error context.
 - Added deterministic restart recovery state machine (`resume`/`replay`/`repair`/`abort`) that consumes persisted attempt journals, records `last_recovery`, and fail-closes on dirty/inconsistent recovery invariants.
 - Added failure-injection integration coverage for startup recovery transitions, fetch-origin failures in no-PR intake, and merged-finalization close-issue failures.
+- Added real-Codex protocol conformance canary harness (`TestRealCodexProtocolConformanceCanary`) plus `scripts/canary-real-codex-protocol.sh` for repeatable runtime validation with archived artifacts.
 
 ### Changed
 

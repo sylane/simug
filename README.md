@@ -238,6 +238,16 @@ For simug-on-simug development, use the wrapper script:
 scripts/self-host-loop.sh --iterations 5
 ```
 
+## Real Codex Protocol Canary
+
+To validate protocol behavior against a real Codex runtime (not shell fixtures):
+
+```bash
+scripts/canary-real-codex-protocol.sh --cmd "codex" --out .simug/canary/real-codex
+```
+
+This runs `TestRealCodexProtocolConformanceCanary` with real runtime prompts and archives per-scenario artifacts (`prompt.txt`, `raw_output.txt`, `result.json`) under the chosen output directory.
+
 What it does per iteration:
 
 - rebuilds `bin/simug`,
