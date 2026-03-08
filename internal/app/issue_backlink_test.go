@@ -47,18 +47,35 @@ func TestBuildIssuePRBacklinkCommentBody(t *testing.T) {
 	}
 }
 
+func TestBuildIssuePRBacklinkCommentBodyWithoutTaskID(t *testing.T) {
+	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "", 123)
+	required := []string{
+		issuePRBacklinkMarker(7, "", 123),
+		"### simug implementation PR link",
+		"- Issue: #7",
+		"- PR: #123 (https://github.com/example/simug/pull/123)",
+	}
+	for _, needle := range required {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("missing %q in backlink body:\n%s", needle, body)
+		}
+	}
+	if strings.Contains(body, "- Task: Task") {
+		t.Fatalf("did not expect task line in backlink body:\n%s", body)
+	}
+}
+
 func TestMaybePostIssueDerivedPRBacklinkPostsComment(t *testing.T) {
 	o := orchestrator{
 		repoRoot: "/tmp",
 		repo:     git.Repo{Owner: "example", Name: "simug"},
 		user:     "alice",
 		state: &state.State{
-			ActiveIssue:   7,
-			PendingTaskID: "5.4a",
+			ActiveIssue: 7,
 		},
 	}
 
-	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "5.4a", 123)
+	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "", 123)
 	runner := githubOnlyMockRunner{responses: map[string]string{
 		githubCommandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[]`,
 		githubCommandKey("gh", "issue", "comment", "7", "--body", body):                                 "",
@@ -77,12 +94,11 @@ func TestMaybePostIssueDerivedPRBacklinkSkipsDuplicateMarker(t *testing.T) {
 		repo:     git.Repo{Owner: "example", Name: "simug"},
 		user:     "alice",
 		state: &state.State{
-			ActiveIssue:   7,
-			PendingTaskID: "5.4a",
+			ActiveIssue: 7,
 		},
 	}
 
-	marker := issuePRBacklinkMarker(7, "5.4a", 123)
+	marker := issuePRBacklinkMarker(7, "", 123)
 	runner := githubOnlyMockRunner{responses: map[string]string{
 		githubCommandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[[` +
 			`{"id":1001,"body":"` + marker + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}` +
@@ -102,13 +118,12 @@ func TestMaybePostIssueDerivedPRBacklinkIgnoresMarkerFromOtherAuthor(t *testing.
 		repo:     git.Repo{Owner: "example", Name: "simug"},
 		user:     "alice",
 		state: &state.State{
-			ActiveIssue:   7,
-			PendingTaskID: "5.4a",
+			ActiveIssue: 7,
 		},
 	}
 
-	marker := issuePRBacklinkMarker(7, "5.4a", 123)
-	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "5.4a", 123)
+	marker := issuePRBacklinkMarker(7, "", 123)
+	body := buildIssuePRBacklinkCommentBody("example/simug", 7, "", 123)
 	runner := githubOnlyMockRunner{responses: map[string]string{
 		githubCommandKey("gh", "api", "repos/example/simug/issues/7/comments", "--paginate", "--slurp"): `[[` +
 			`{"id":1001,"body":"` + marker + `","created_at":"2026-03-07T12:00:00Z","user":{"login":"mallory"}}` +

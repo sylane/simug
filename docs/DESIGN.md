@@ -32,9 +32,8 @@ The objective is implementable with the current architecture:
 
 Current implementation still has known gaps relative to target design:
 
-- Legacy orchestrator-side planning file insertion is still active in issue-triage flow and must be removed.
 - Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-- Issue lifecycle finalization (track fixed issues during implementation and close on merge) is not implemented yet.
+- Issue-task intake handoff still needs a richer Codex-mediated bootstrap context path (tracked in planning) beyond basic triage intent carry-over.
 
 Planning must prioritize these alignment items before expanding advanced session/interactive features.
 
@@ -134,13 +133,11 @@ If no authored open issues exist, bootstrap the next work item from project guid
 
 Codex can propose PR title/body through protocol; orchestrator uses those when creating the PR.
 
-Implementation note: issue-first mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, orchestrator-owned triage comments, pending-task bootstrap targeting, and issue-to-PR backlink comments are active and restart-safe. A cleanup phase tracks removal of legacy orchestrator-side planning mutation so repository planning/workflow edits remain Codex-authored only.
+Implementation note: issue-first mode persistence, authored-issue discovery/selection, issue-triage prompt/report validation, orchestrator-owned triage comments, and issue-to-PR backlink comments are active and restart-safe. Orchestrator runtime no longer mutates project planning/workflow/source files directly; repository content updates remain Codex-authored through normal commits.
 
-### 5.1 Transitional Compatibility Note (Current Runtime vs Target Design)
+### 5.1 Ownership Boundary Status
 
-Target design: orchestrator does not edit project planning/workflow/source files directly.
-
-Current runtime behavior still includes a temporary legacy path that may insert issue-derived tasks into project planning during issue triage. This path is tracked for removal and must be eliminated via the design-alignment tasks (ownership boundary and Codex-mediated issue-task intake) before considering the architecture fully aligned.
+Current runtime behavior enforces the ownership boundary: orchestrator direct filesystem writes are limited to `.simug/*` runtime artifacts, while project planning/workflow/source changes are Codex-authored when needed.
 
 ### 5.2 Issue Lifecycle Target (Beyond Initial Triage)
 

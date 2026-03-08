@@ -563,16 +563,10 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 			}
 			o.state.PendingTaskID = ""
 			if report.NeedsTask {
-				taskID, inserted, err := ensureIssueDerivedPlanningTask(o.repoRoot, report)
-				if err != nil {
-					return fmt.Errorf("insert issue-derived planning task: %w", err)
-				}
-				o.state.PendingTaskID = taskID
-				o.logEvent("planning_insertion", "processed issue-derived planning task", map[string]any{
-					"issue":    report.IssueNumber,
-					"task_id":  taskID,
-					"inserted": inserted,
-					"title":    limitString(strings.TrimSpace(report.TaskTitle), 200),
+				o.logEvent("issue_task_intent", "accepted issue-derived task intent without orchestrator project-file mutation", map[string]any{
+					"issue":      report.IssueNumber,
+					"task_title": limitString(strings.TrimSpace(report.TaskTitle), 200),
+					"task_body":  limitString(strings.TrimSpace(report.TaskBody), 2000),
 				})
 			}
 		}
@@ -994,7 +988,7 @@ func buildIssueTriageCommentBody(report agent.Action) string {
 func (o *orchestrator) maybePostIssueDerivedPRBacklink(ctx context.Context, prNumber int) error {
 	issueNumber := o.state.ActiveIssue
 	taskID := strings.TrimSpace(o.state.PendingTaskID)
-	if issueNumber <= 0 || taskID == "" {
+	if issueNumber <= 0 {
 		return nil
 	}
 
@@ -1032,6 +1026,9 @@ func (o *orchestrator) maybePostIssueDerivedPRBacklink(ctx context.Context, prNu
 }
 
 func issuePRBacklinkMarker(issueNumber int, taskID string, prNumber int) string {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Sprintf("<!-- simug:issue-pr-link:v1 issue=%d pr=%d -->", issueNumber, prNumber)
+	}
 	return fmt.Sprintf("<!-- simug:issue-pr-link:v1 issue=%d task=%s pr=%d -->", issueNumber, strings.TrimSpace(taskID), prNumber)
 }
 
@@ -1042,7 +1039,9 @@ func buildIssuePRBacklinkCommentBody(repoFullName string, issueNumber int, taskI
 	b.WriteString("\n")
 	b.WriteString("### simug implementation PR link\n")
 	b.WriteString(fmt.Sprintf("- Issue: #%d\n", issueNumber))
-	b.WriteString(fmt.Sprintf("- Task: Task %s\n", strings.TrimSpace(taskID)))
+	if strings.TrimSpace(taskID) != "" {
+		b.WriteString(fmt.Sprintf("- Task: Task %s\n", strings.TrimSpace(taskID)))
+	}
 	b.WriteString(fmt.Sprintf("- PR: #%d (%s)\n", prNumber, url))
 	return b.String()
 }

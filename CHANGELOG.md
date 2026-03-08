@@ -53,6 +53,9 @@ https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Removed legacy orchestrator-side planning insertion during issue triage; `issue_report.needs_task=true` now records intent without mutating project files, preserving the `.simug/*`-only runtime write boundary.
+- Updated issue-to-PR backlink behavior to remain idempotent when no `pending_task_id` is present, keeping issue traceability without requiring orchestrator planning edits.
+- Updated design documentation to reflect that runtime orchestrator writes are limited to `.simug/*` artifacts and no longer include transitional planning-file mutation caveats.
 - Reworked planning roadmap by inserting a dedicated maintainability/modularity/safety hardening phase between self-host readiness and environment/release readiness, and renumbered later phases accordingly.
 - Clarified design/README ownership boundary that orchestrator should not directly edit project planning/workflow/source files; repository content updates are Codex-authored through normal commits.
 - Extended issue roadmap with post-triage lifecycle tasks (protocol linkage during implementation, PR-scoped issue ledger, orchestrator-owned issue updates, and close-on-merge finalization).
