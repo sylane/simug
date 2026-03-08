@@ -59,3 +59,4 @@ https://keepachangelog.com/en/1.1.0/
 - Updated real-Codex canary scripts, gate docs, README examples, and Make defaults to use/auto-detect non-interactive `codex exec` by default while preserving explicit command overrides.
 - Tightened workflow/agent policy so real-Codex gate evidence (`scripts/canary-real-codex-gate.sh`) is a mandatory completion criterion for future tasks, and documented runbook docs as operational validation procedures.
 - Declared `history/*` files immutable after commit in workflow rules; follow-up clarifications must be recorded in new history files.
+- Moved operational runbooks from `docs/` to `docs/runbooks/` and updated project references so top-level docs remain focused on design/planning/workflow guidance.

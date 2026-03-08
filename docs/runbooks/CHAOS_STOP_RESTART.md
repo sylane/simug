@@ -43,4 +43,4 @@ Optional:
 ## Checklist Linkage
 
 Treat successful chaos summary artifacts as mandatory evidence for
-`docs/SELF_HOST_GO_NO_GO.md` before declaring self-host default readiness.
+`docs/runbooks/SELF_HOST_GO_NO_GO.md` before declaring self-host default readiness.

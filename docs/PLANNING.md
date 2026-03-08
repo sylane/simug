@@ -32,7 +32,8 @@ When phase ordering conflicts with design alignment, execute tasks in this order
 13. Task 6.10b (Codex runtime preflight diagnostics)
 14. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
 15. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
-16. Task 6.3+ (remaining self-hosting continuation)
+16. Task 6.10e (runbook docs relocation to docs/runbooks/)
+17. Task 6.3+ (remaining self-hosting continuation)
 
 Rationale:
 - Design requires orchestrator/project ownership boundary first.
@@ -264,6 +265,10 @@ Execution note:
 - [x] **Task 6.10d: Workflow enforcement of real-Codex gate for all future tasks**
   - Scope: codify `scripts/canary-real-codex-gate.sh` as mandatory Definition-of-Done evidence for all future implementation tasks and align AGENTS/workflow wording with this requirement.
   - Done when: workflow/agents docs explicitly block task finalization without recent passing real-Codex gate evidence (or explicit manager waiver recorded in task history).
+
+- [x] **Task 6.10e: Runbook docs relocation to `docs/runbooks/`**
+  - Scope: move operational validation runbooks out of top-level `docs/` into `docs/runbooks/` and update all references to preserve navigation and workflow clarity.
+  - Done when: runbooks live under `docs/runbooks/`, top-level docs remain design/planning/workflow-oriented, and all links/references resolve correctly.
 
 ## Phase 7: Maintainability, Modularity, and Safety Hardening (Priority)
 

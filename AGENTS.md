@@ -78,6 +78,7 @@ simug run
 - `docs/DESIGN.md`: behavior and invariants source of truth.
 - `docs/PLANNING.md`: task backlog and status.
 - `docs/WORKFLOW.md`: mandatory development workflow.
+- `docs/runbooks/`: operational validation procedures and evidence-oriented runbooks.
 - `history/`: one context file per task.
 
 ## Code Style

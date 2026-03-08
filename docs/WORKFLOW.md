@@ -14,11 +14,11 @@ Architecture and behavior contracts are tracked in `docs/DESIGN.md`.
 - Task backlog/status:
   - `docs/PLANNING.md`
 - Operational validation runbooks (execution procedures + evidence artifacts):
-  - `docs/REAL_CODEX_GATE.md`
-  - `docs/SANDBOX_DRY_RUN.md`
-  - `docs/SELF_HOST_CANARY.md`
-  - `docs/CHAOS_STOP_RESTART.md`
-  - `docs/SELF_HOST_GO_NO_GO.md`
+  - `docs/runbooks/REAL_CODEX_GATE.md`
+  - `docs/runbooks/SANDBOX_DRY_RUN.md`
+  - `docs/runbooks/SELF_HOST_CANARY.md`
+  - `docs/runbooks/CHAOS_STOP_RESTART.md`
+  - `docs/runbooks/SELF_HOST_GO_NO_GO.md`
 
 ## Core Principles
 
@@ -201,8 +201,8 @@ Before finalizing a task:
 - `.git/SIMUG_COMMIT_MSG` exists and is non-empty.
 - Planning refinement pass is completed and reflected in `docs/PLANNING.md` or explicitly recorded as `None` in task history.
 - Task context exists in `history/` and includes concise validation evidence.
-- `scripts/canary-real-codex-gate.sh` passes in the current environment-configured Codex setup and artifacts are retained per `docs/REAL_CODEX_GATE.md`.
-- For self-host default enablement decisions, checklist in `docs/SELF_HOST_GO_NO_GO.md` is evaluated and archived.
+- `scripts/canary-real-codex-gate.sh` passes in the current environment-configured Codex setup and artifacts are retained per `docs/runbooks/REAL_CODEX_GATE.md`.
+- For self-host default enablement decisions, checklist in `docs/runbooks/SELF_HOST_GO_NO_GO.md` is evaluated and archived.
 
 If `go` or `gh` is unavailable in the execution environment, record this explicitly in task completion notes and run the gates on the next environment where tools are available.
 

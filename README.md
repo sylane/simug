@@ -271,7 +271,7 @@ For stop/restart chaos validation:
 scripts/chaos-stop-restart.sh --repo . --sleep-seconds 2
 ```
 
-Go/no-go criteria for enabling self-host default are documented in `docs/SELF_HOST_GO_NO_GO.md`.
+Go/no-go criteria for enabling self-host default are documented in `docs/runbooks/SELF_HOST_GO_NO_GO.md`.
 
 ## Real Codex Protocol Canary
 
@@ -380,3 +380,4 @@ GOCACHE=/tmp/go-build go tool cover -func=coverage.out
 - [Design](docs/DESIGN.md)
 - [Workflow](docs/WORKFLOW.md)
 - [Planning](docs/PLANNING.md)
+- [Runbooks](docs/runbooks/)
