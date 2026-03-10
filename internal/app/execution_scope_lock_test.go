@@ -111,6 +111,111 @@ func TestValidateExecutionScopeLockRejectsForeignInProgress(t *testing.T) {
 	}
 }
 
+func TestValidateExecutionScopeLockAllowsMissingPlanningFile(t *testing.T) {
+	tmp := t.TempDir()
+
+	o := orchestrator{repoRoot: tmp}
+	lock, err := o.newExecutionScopeLock(state.BootstrapIntent{
+		TaskRef:    "Task 7.3",
+		BranchName: "agent/20260310-165033-bootstrap-context-abstraction",
+	})
+	if err != nil {
+		t.Fatalf("newExecutionScopeLock returned error: %v", err)
+	}
+	if lock.PlanningEnforced {
+		t.Fatalf("PlanningEnforced=%v, want false", lock.PlanningEnforced)
+	}
+
+	if err := o.validateExecutionScopeLock(lock); err != nil {
+		t.Fatalf("validateExecutionScopeLock returned error: %v", err)
+	}
+}
+
+func TestValidateExecutionScopeLockAllowsUnsupportedPlanningFormat(t *testing.T) {
+	tmp := t.TempDir()
+	docsDir := filepath.Join(tmp, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("mkdir docs dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "PLANNING.md"), []byte("# custom planning\nnext task: bootstrap abstraction"), 0o644); err != nil {
+		t.Fatalf("write planning fixture: %v", err)
+	}
+
+	o := orchestrator{repoRoot: tmp}
+	lock, err := o.newExecutionScopeLock(state.BootstrapIntent{
+		TaskRef:    "Task 7.3",
+		BranchName: "agent/20260310-165033-bootstrap-context-abstraction",
+	})
+	if err != nil {
+		t.Fatalf("newExecutionScopeLock returned error: %v", err)
+	}
+	if lock.PlanningEnforced {
+		t.Fatalf("PlanningEnforced=%v, want false", lock.PlanningEnforced)
+	}
+
+	if err := o.validateExecutionScopeLock(lock); err != nil {
+		t.Fatalf("validateExecutionScopeLock returned error: %v", err)
+	}
+}
+
+func TestCapturePlanningStatusFindsRootPlanningFile(t *testing.T) {
+	tmp := t.TempDir()
+	body := `# Planning
+- [ ] **[IN_PROGRESS] Task 7.3: bootstrap context abstraction**
+`
+	if err := os.WriteFile(filepath.Join(tmp, "PLANNING.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write planning fixture: %v", err)
+	}
+
+	snapshot, err := capturePlanningStatus(tmp)
+	if err != nil {
+		t.Fatalf("capturePlanningStatus returned error: %v", err)
+	}
+	if snapshot.Path != "PLANNING.md" {
+		t.Fatalf("path=%q, want PLANNING.md", snapshot.Path)
+	}
+	if !snapshot.SupportedFormat {
+		t.Fatalf("SupportedFormat=%v, want true", snapshot.SupportedFormat)
+	}
+	if !snapshot.supportsTask("7.3") {
+		t.Fatalf("supportsTask(7.3)=false, want true")
+	}
+}
+
+func TestNewExecutionScopeLockUsesConfiguredPlanningPath(t *testing.T) {
+	tmp := t.TempDir()
+	metaDir := filepath.Join(tmp, "meta")
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("mkdir meta dir: %v", err)
+	}
+	body := `# Tasks
+- [ ] **[IN_PROGRESS] Task 7.3: bootstrap context abstraction**
+`
+	if err := os.WriteFile(filepath.Join(metaDir, "TASKS.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write planning fixture: %v", err)
+	}
+
+	o := orchestrator{
+		repoRoot: tmp,
+		cfg: config{
+			PlanningCandidates: []string{"meta/TASKS.md"},
+		},
+	}
+	lock, err := o.newExecutionScopeLock(state.BootstrapIntent{
+		TaskRef:    "Task 7.3",
+		BranchName: "agent/20260310-165033-bootstrap-context-abstraction",
+	})
+	if err != nil {
+		t.Fatalf("newExecutionScopeLock returned error: %v", err)
+	}
+	if !lock.PlanningEnforced {
+		t.Fatalf("PlanningEnforced=%v, want true", lock.PlanningEnforced)
+	}
+	if lock.PlanningBaseline.Path != "meta/TASKS.md" {
+		t.Fatalf("path=%q, want meta/TASKS.md", lock.PlanningBaseline.Path)
+	}
+}
+
 func writePlanningFixture(t *testing.T, repoRoot string, body string) {
 	t.Helper()
 	docsDir := filepath.Join(repoRoot, "docs")

@@ -30,11 +30,9 @@ The objective is implementable with the current architecture:
 
 ### 1.2 Known Design-Implementation Gaps (To Be Closed)
 
-Current implementation still has known gaps relative to target design:
+Bootstrap guidance now treats repository workflow/planning/instruction docs as optional, discoverable Codex context rather than hard-required simug-specific files.
 
-- Prompt builders still reference simug-specific workflow/planning files directly instead of fully optional bootstrap context discovery.
-
-Planning must prioritize these alignment items before expanding advanced session/interactive features.
+Remaining design-alignment work should be tracked explicitly in `docs/PLANNING.md` before expanding advanced session/interactive features.
 
 ## 2. Core Invariants
 
@@ -55,7 +53,7 @@ These invariants are enforced on every loop iteration.
 13. Orchestrator direct filesystem writes are limited to `.simug/*` runtime artifacts; project content changes come from Codex commits.
 14. Repository instruction documents (for example `AGENTS.md`) are optional Codex context inputs only, not orchestration control inputs.
 15. `task_bootstrap` execution runs are allowed only after a previously approved, persisted bootstrap intent.
-16. During locked `task_bootstrap` execution, planning status drift outside the approved task is rejected (including foreign/extra `[IN_PROGRESS]` transitions).
+16. During locked `task_bootstrap` execution, planning status drift outside the approved task is rejected when a discovered planning file exposes supported task-status markers for the locked task; otherwise scope remains bound by approved intent/branch/report validation only.
 17. When a staged bootstrap session id is available, execution/repair turns must resume that same Codex session id.
 
 ## 3. Managed PR Definition
@@ -331,8 +329,9 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 
 Every Codex prompt includes:
 
-- Follow project workflow/planning guidance when present (for simug itself: `docs/WORKFLOW.md` and `docs/PLANNING.md`).
-- Use repository instruction files (for example `AGENTS.md`) as execution guidance when present.
+- Discover repository guidance files opportunistically (for example `AGENTS.md`, `WORKFLOW.md`, `PLANNING.md`, `README.md`) and use them when present.
+- Allow repo-specific guidance/planning discovery candidates through repo-relative environment configuration (`SIMUG_GUIDANCE_PATHS`, `SIMUG_PLANNING_PATHS`) when repositories use different filenames.
+- If no workflow/planning guidance is discovered, fall back to approved intent plus direct repository inspection instead of assuming simug-specific files exist.
 - Commit changes locally when task step is completed.
 - Never push or create PR directly.
 - Emit machine-readable protocol messages.
@@ -427,8 +426,8 @@ After every Codex run:
    - exactly one intent comment with valid `INTENT_JSON` payload is required.
 8. In `task_bootstrap` execution stage:
    - approved `task_ref` must include canonical `Task <id>` and remain scope lock target during retries,
-   - status changes in `docs/PLANNING.md` for non-target tasks are rejected,
-   - at most one `[IN_PROGRESS]` task is allowed and it must be the locked task when present,
+   - when a discovered planning file exposes supported task-status markers for the locked task, status changes for non-target tasks are rejected,
+   - when that planning-status lock is active, at most one `[IN_PROGRESS]` task is allowed and it must be the locked task,
    - `done` requires exactly one valid `REPORT_JSON` comment matching approved task, expected branch, and post-run head.
 9. Orchestrator must not directly mutate project planning/workflow/source files; these updates are Codex-authored if required.
 10. Manager-channel lines are size-limited and sanitized before display/logging.

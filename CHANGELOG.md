@@ -64,6 +64,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added staged bootstrap session continuity support with persisted `bootstrap_session_id` state and codex resume command selection (`codex exec resume <id> -`) when available.
 - Added session continuity helpers/tests for resume command construction, session-id extraction from artifacts, and bootstrap-session state normalization semantics.
 - Added explicit issue-task bootstrap handoff state (`issue_task_intent`) plus active PR task context tracking (`active_task_ref`) so issue-derived triage intent survives to bootstrap/PR linkage without orchestrator planning-file mutation.
+- Added repo-relative `SIMUG_GUIDANCE_PATHS` / `SIMUG_PLANNING_PATHS` configuration so bootstrap prompts and planning scope locks can discover non-standard repository guidance files without hard-coding simug-specific filenames.
 
 ### Changed
 
@@ -82,3 +83,5 @@ https://keepachangelog.com/en/1.1.0/
 - Changed no-PR bootstrap orchestration from single-turn execution to a two-stage contract (`intent` tick, then `execution` tick) with explicit commit/no-commit invariants per stage.
 - Tightened bootstrap intent contract so `task_ref` must include canonical `Task <id>` for deterministic scope locking during execution/repair attempts.
 - Updated issue-derived bootstrap prompting/backlink semantics so triaged issue task proposals are injected into intent context, approved intent `task_ref` drives downstream task metadata, and issue backlink/comments use validated task context.
+- Updated bootstrap guidance handling to discover optional repo instruction/workflow/planning files at prompt time and to skip planning-status lock enforcement when no supported planning file covers the approved task.
+- Updated bootstrap guidance discovery to prepend repo-configured candidate paths before the default filename set, keeping optional-file fallback behavior for repositories with custom doc layouts.

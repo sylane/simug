@@ -201,6 +201,8 @@ Current variables:
 - `SIMUG_MAX_REPAIR_ATTEMPTS` (default: `2`)
 - `SIMUG_ALLOWED_COMMAND_USERS` (default: current authenticated user)
 - `SIMUG_ALLOWED_COMMAND_VERBS` (default: `do,retry,status,continue,comment,report,help`)
+- `SIMUG_GUIDANCE_PATHS` (default: prepend repo-relative bootstrap guidance candidates ahead of built-in discovery such as `AGENTS.md`, workflow/planning docs, and `README.md`)
+- `SIMUG_PLANNING_PATHS` (default: prepend repo-relative planning-status candidates ahead of built-in `docs/PLANNING.md`, `PLANNING.md`)
 
 Example:
 
@@ -209,6 +211,8 @@ export SIMUG_AGENT_CMD="codex exec"
 export SIMUG_POLL_SECONDS=20
 export SIMUG_ALLOWED_COMMAND_USERS="my-github-login,teammate-login"
 export SIMUG_ALLOWED_COMMAND_VERBS="do,retry,status,comment"
+export SIMUG_GUIDANCE_PATHS="meta/BOOTSTRAP.md,meta/PLAYBOOK.md"
+export SIMUG_PLANNING_PATHS="meta/TASKS.md"
 ```
 
 ## Codex Runtime Permissions (Self-Hosted `simug` Dev Only)

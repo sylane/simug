@@ -311,7 +311,7 @@ Execution note:
   - Scope: ensure staged `intent -> execute -> repair` turns run on the same Codex session/thread identity with restart-safe persistence in worker state.
   - Done when: state/events prove session continuity across staged turns and restart recovery resumes the same session when available.
 
-- [ ] **Task 7.3: Bootstrap context abstraction (no hard-required docs format)**
+- [x] **Task 7.3: Bootstrap context abstraction (no hard-required docs format)**
   - Scope: make prompt bootstrap context optional/discoverable and configurable per repo, with no hard dependency on `docs/WORKFLOW.md` or `docs/PLANNING.md` existence/format.
   - Done when: simug orchestrates safely in repositories that do not provide these files, and `docs/DESIGN.md` + `AGENTS.md` clarify guidance-file handling and fallback behavior.
 

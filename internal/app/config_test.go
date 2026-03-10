@@ -13,6 +13,8 @@ func TestLoadConfigReadsSimugEnvVars(t *testing.T) {
 	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "3")
 	t.Setenv("SIMUG_ALLOWED_COMMAND_USERS", "alice,bob")
 	t.Setenv("SIMUG_ALLOWED_COMMAND_VERBS", "do,status")
+	t.Setenv("SIMUG_GUIDANCE_PATHS", "meta/BOOTSTRAP.md,repo/PLAYBOOK.md")
+	t.Setenv("SIMUG_PLANNING_PATHS", "meta/TASKS.md")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -38,6 +40,18 @@ func TestLoadConfigReadsSimugEnvVars(t *testing.T) {
 	}
 	if _, ok := cfg.AllowedVerbs["status"]; !ok {
 		t.Fatalf("expected status in allowed verbs")
+	}
+	if len(cfg.GuidanceCandidates) < 3 {
+		t.Fatalf("GuidanceCandidates=%v, want custom paths plus defaults", cfg.GuidanceCandidates)
+	}
+	if cfg.GuidanceCandidates[0] != "meta/BOOTSTRAP.md" {
+		t.Fatalf("GuidanceCandidates[0]=%q, want meta/BOOTSTRAP.md", cfg.GuidanceCandidates[0])
+	}
+	if cfg.GuidanceCandidates[1] != "repo/PLAYBOOK.md" {
+		t.Fatalf("GuidanceCandidates[1]=%q, want repo/PLAYBOOK.md", cfg.GuidanceCandidates[1])
+	}
+	if cfg.PlanningCandidates[0] != "meta/TASKS.md" {
+		t.Fatalf("PlanningCandidates[0]=%q, want meta/TASKS.md", cfg.PlanningCandidates[0])
 	}
 }
 
@@ -98,5 +112,13 @@ func TestLoadConfigFallsBackWhenCodexNotFound(t *testing.T) {
 	}
 	if cfg.AgentCommand != "codex exec" {
 		t.Fatalf("AgentCommand=%q, want codex exec", cfg.AgentCommand)
+	}
+}
+
+func TestLoadConfigRejectsEscapingGuidancePath(t *testing.T) {
+	t.Setenv("SIMUG_GUIDANCE_PATHS", "../outside.md")
+
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("expected loadConfig error for escaping guidance path")
 	}
 }

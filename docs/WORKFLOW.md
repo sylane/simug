@@ -7,6 +7,8 @@ This document defines the mandatory workflow for developing `simug`, including t
 Task prioritization/status is tracked in `docs/PLANNING.md`.
 Architecture and behavior contracts are tracked in `docs/DESIGN.md`.
 
+This workflow file is simug-specific project guidance. In other repositories, simug bootstrap discovers guidance files opportunistically and must fall back safely when workflow/planning docs are missing or use a different format.
+
 ## Companion Documents
 
 - Design source of truth:
@@ -76,6 +78,7 @@ Enforced by orchestrator:
 - clean working tree at terminal action,
 - commit movement consistency (`changes=true` implies new commit; `idle` implies no commit change),
 - issue-derived intake handoff persistence (`issue_task_intent` from triage -> approved `task_ref` intent -> issue/PR task-context backlink),
+- optional/discoverable bootstrap guidance context, with planning-status drift enforcement only when a discovered planning file exposes supported task markers for the locked task,
 - bounded repair attempts with explicit diagnostics.
 
 Required process for Codex during self-hosted development:
