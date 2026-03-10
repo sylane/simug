@@ -68,6 +68,7 @@ https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- When a managed branch is already merged into `origin/main`, no-PR intake now checks out `main`, fast-forwards it, and deletes the merged local branch so dogfood runs do not accumulate stale agent branches.
 - Bootstrap execution now requires exactly one commit from the staged baseline, and simug aborts automatic bootstrap repair/recovery when a failed attempt already advanced `HEAD`.
 - Managed-PR prompts now include inline review comment file/hunk/line metadata, and review-comment replies use the pull-number-scoped GitHub API path expected by GitHub.
 - Refined the Phase 7 backlog to queue follow-up work for inline review-context propagation, review-comment reply endpoint correctness, bootstrap single-commit fail-closed validation, and merged-branch local cleanup ahead of `Task 7.4`.

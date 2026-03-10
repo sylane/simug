@@ -109,3 +109,39 @@ func TestRunEmitsCommandTraceOnError(t *testing.T) {
 		t.Fatalf("expected trace error to be populated")
 	}
 }
+
+func TestDeleteLocalBranchUsesSafeDelete(t *testing.T) {
+	restoreRunner := SetCommandRunnerForTest(mockCommandRunner{
+		run: func(_ context.Context, _ string, name string, args ...string) (string, error) {
+			if name != "git" || strings.Join(args, " ") != "branch -d agent/20260310-120000-task" {
+				t.Fatalf("unexpected command %s %s", name, strings.Join(args, " "))
+			}
+			return "", nil
+		},
+	})
+	defer restoreRunner()
+
+	if err := DeleteLocalBranch(context.Background(), "/tmp", "agent/20260310-120000-task"); err != nil {
+		t.Fatalf("DeleteLocalBranch returned error: %v", err)
+	}
+}
+
+func TestIsAncestorReturnsFalseOnExitCodeOne(t *testing.T) {
+	restoreRunner := SetCommandRunnerForTest(mockCommandRunner{
+		run: func(_ context.Context, _ string, name string, args ...string) (string, error) {
+			if name != "git" || strings.Join(args, " ") != "merge-base --is-ancestor HEAD origin/main" {
+				t.Fatalf("unexpected command %s %s", name, strings.Join(args, " "))
+			}
+			return "", &commandError{name: name, args: args, cause: errors.New("exit status 1"), exitCode: 1}
+		},
+	})
+	defer restoreRunner()
+
+	merged, err := IsAncestor(context.Background(), "/tmp", "HEAD", "origin/main")
+	if err != nil {
+		t.Fatalf("IsAncestor returned error: %v", err)
+	}
+	if merged {
+		t.Fatalf("expected merged=false on exit code 1")
+	}
+}

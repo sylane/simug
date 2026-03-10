@@ -1504,6 +1504,7 @@ func (o *orchestrator) ensureMainReady(ctx context.Context) error {
 	}
 
 	mainRemoteRef := "origin/" + o.cfg.MainBranch
+	mergedBranchToDelete := ""
 	if currentBranch != o.cfg.MainBranch {
 		merged, err := git.IsAncestor(ctx, o.repoRoot, "HEAD", mainRemoteRef)
 		if err != nil {
@@ -1521,6 +1522,7 @@ func (o *orchestrator) ensureMainReady(ctx context.Context) error {
 			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "checkout_main", "error": wrapped.Error()})
 			return wrapped
 		}
+		mergedBranchToDelete = currentBranch
 	}
 
 	ahead, behind, err := git.AheadBehind(ctx, o.repoRoot, "HEAD", mainRemoteRef)
@@ -1540,6 +1542,18 @@ func (o *orchestrator) ensureMainReady(ctx context.Context) error {
 			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "pull_ff_only", "ahead": ahead, "behind": behind, "target": mainRemoteRef, "error": wrapped.Error()})
 			return wrapped
 		}
+	}
+	if mergedBranchToDelete != "" {
+		if err := git.DeleteLocalBranch(ctx, o.repoRoot, mergedBranchToDelete); err != nil {
+			wrapped := fmt.Errorf("delete merged local branch %s: %w", mergedBranchToDelete, err)
+			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "delete_merged_branch", "branch": mergedBranchToDelete, "error": wrapped.Error()})
+			return wrapped
+		}
+		o.logEvent("branch_cleanup", "deleted merged local branch after main sync", map[string]any{
+			"branch":      mergedBranchToDelete,
+			"main_branch": o.cfg.MainBranch,
+			"main_remote": mainRemoteRef,
+		})
 	}
 	o.logEvent("invariant_decision", "main readiness passed", map[string]any{
 		"pass":           true,

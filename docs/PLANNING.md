@@ -330,7 +330,7 @@ Execution note:
   - Scope: reject bootstrap execution or repair flows that accumulate more than one commit from the staged baseline, abort when failed attempts already advanced `HEAD`, and add regression tests for the multi-commit repair stack described in `../TEMP.md`.
   - Done when: pre-push bootstrap validation requires exactly one execution commit for the approved task and repair cannot silently stack extra implementation commits.
 
-- [ ] **Task 7.3d: Post-merge local branch cleanup and transition validation**
+- [x] **Task 7.3d: Post-merge local branch cleanup and transition validation**
   - Scope: preserve the existing merged-branch -> `main` checkout and fast-forward sync path during no-PR intake, then delete the merged managed local branch only after merge validation, with deterministic tests and self-host validation for merge -> cleanup -> next intake.
   - Done when: merged managed branches do not accumulate locally, merge transitions preserve fail-closed state guarantees, and automated coverage proves the cleanup path.
 

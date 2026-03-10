@@ -211,17 +211,21 @@ func PullFFOnly(ctx context.Context, repoRoot, remote, branch string) error {
 	return err
 }
 
+func DeleteLocalBranch(ctx context.Context, repoRoot, branch string) error {
+	_, err := run(ctx, repoRoot, "git", "branch", "-d", branch)
+	return err
+}
+
 func IsAncestor(ctx context.Context, repoRoot, ancestorRef, descendantRef string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", ancestorRef, descendantRef)
-	cmd.Dir = repoRoot
-	out, err := cmd.CombinedOutput()
+	_, err := run(ctx, repoRoot, "git", "merge-base", "--is-ancestor", ancestorRef, descendantRef)
 	if err == nil {
 		return true, nil
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+	var cmdErr *commandError
+	if errors.As(err, &cmdErr) && cmdErr.exitCode == 1 {
 		return false, nil
 	}
-	return false, fmt.Errorf("git merge-base --is-ancestor %s %s failed: %w: %s", ancestorRef, descendantRef, err, strings.TrimSpace(string(out)))
+	return false, fmt.Errorf("git merge-base --is-ancestor %s %s failed: %w", ancestorRef, descendantRef, err)
 }
 
 func AheadBehind(ctx context.Context, repoRoot, leftRef, rightRef string) (int, int, error) {

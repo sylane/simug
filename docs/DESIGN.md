@@ -110,39 +110,40 @@ When no managed open PR exists:
 1. Validate repo is on `main` or on a branch already merged into `origin/main`.
 2. Ensure clean working tree.
 3. Fast-forward local `main` to `origin/main` (`fetch` + `pull --ff-only`).
-4. Discover candidate issues:
+4. If execution started from a merged managed local branch, delete that local branch after checkout/sync completes successfully.
+5. Discover candidate issues:
    - list open issues for this repo authored by authenticated user,
    - process deterministically by oldest first (lowest issue number).
-5. If a candidate issue exists, run `issue_triage` mode:
+6. If a candidate issue exists, run `issue_triage` mode:
    - send issue context to Codex,
    - require exactly one `issue_report` protocol action,
    - orchestrator posts issue analysis comment based on report.
-6. If `issue_report.needs_task == true`:
+7. If `issue_report.needs_task == true`:
    - orchestrator records explicit `issue_task_intent` in worker state (`issue_number`, `task_title`, `task_body`, `recorded_at`),
    - orchestrator does not parse or edit planning/workflow files directly,
    - Codex performs repo-specific planning/task-file updates through normal commits when needed.
-7. In `task_bootstrap` mode with no approved intent, run an intent-only planning turn:
+8. In `task_bootstrap` mode with no approved intent, run an intent-only planning turn:
    - Codex must stay on `main`,
    - no file edits/commits/branch switching,
    - if `issue_task_intent` is present, prompt must include that triage context and require Codex to choose a canonical `Task <id>` for execution intent,
    - protocol must emit exactly one intent `comment` (`INTENT_JSON:{...}`) plus terminal `done` (`changes=false`) or terminal `idle`.
-8. Validate and persist approved bootstrap intent (`task_ref`, `summary`, `branch_slug`, `pr_title`, `pr_body`, optional `checks`) in worker state as `bootstrap_intent`; derive legacy-compatible `pending_task_id` from approved `task_ref` for downstream task-context metadata.
-9. Capture and persist staged bootstrap session identity (`bootstrap_session_id`) when available from Codex runtime artifacts.
-9. In `task_bootstrap` mode with approved intent, run execution turn:
+9. Validate and persist approved bootstrap intent (`task_ref`, `summary`, `branch_slug`, `pr_title`, `pr_body`, optional `checks`) in worker state as `bootstrap_intent`; derive legacy-compatible `pending_task_id` from approved `task_ref` for downstream task-context metadata.
+10. Capture and persist staged bootstrap session identity (`bootstrap_session_id`) when available from Codex runtime artifacts.
+11. In `task_bootstrap` mode with approved intent, run execution turn:
    - Codex must execute the approved task scope,
    - Codex must create/use derived managed branch `agent/<timestamp>-<branch_slug>`,
    - Codex commits locally and emits terminal `done` (`changes=true`) or terminal `idle`,
    - planning status changes for tasks other than the approved task are forbidden.
-10. Validate Codex output:
+12. Validate Codex output:
    - branch matches managed pattern,
    - exactly one new commit exists for `done + changes=true`,
    - working tree is clean,
    - structured execution report payload (`REPORT_JSON`) matches approved task/branch/post-run head,
    - observed session id (when emitted) matches persisted `bootstrap_session_id`,
    - failed bootstrap attempts that already advanced `HEAD` do not enter automatic repair/replay.
-11. Orchestrator pushes branch and creates PR assigned to self.
-12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR plus task context (`Task <id>` from approved intent).
-13. Store new PR as active and begin monitoring.
+13. Orchestrator pushes branch and creates PR assigned to self.
+14. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR plus task context (`Task <id>` from approved intent).
+15. Store new PR as active and begin monitoring.
 
 If no authored open issues exist, bootstrap the next work item from project guidance (for example planning/workflow docs when present).
 
