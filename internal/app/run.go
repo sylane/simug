@@ -40,6 +40,19 @@ var bootstrapIntentSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,40}$`)
 var taskRefIDPattern = regexp.MustCompile(`(?i)\btask\s+([0-9]+\.[0-9]+[a-z]?)\b`)
 var planningTaskStatusPattern = regexp.MustCompile(`^- \[( |x)\] \*\*(?:\[IN_PROGRESS\] )?Task ([0-9]+\.[0-9]+[a-z]?):`)
 var codexSessionIDPattern = regexp.MustCompile(`^[0-9a-fA-F-]{8,}$`)
+var promptGuidanceCandidates = []string{
+	"AGENTS.md",
+	"AGENT.md",
+	"docs/WORKFLOW.md",
+	"WORKFLOW.md",
+	"docs/PLANNING.md",
+	"PLANNING.md",
+	"README.md",
+}
+var planningGuidanceCandidates = []string{
+	"docs/PLANNING.md",
+	"PLANNING.md",
+}
 
 type config struct {
 	PollInterval      time.Duration
@@ -151,15 +164,8 @@ func run(ctx context.Context, startDir string, once bool, options RunOptions) er
 		return err
 	}
 
-	files := []string{
-		filepath.Join(repoRoot, "AGENT.md"),
-		filepath.Join(repoRoot, "docs", "WORKFLOW.md"),
-		filepath.Join(repoRoot, "docs", "PLANNING.md"),
-	}
-	for _, f := range files {
-		if _, err := os.Stat(f); err == nil {
-			fmt.Printf("context: found %s\n", strings.TrimPrefix(f, repoRoot+string(os.PathSeparator)))
-		}
+	for _, path := range discoverGuidanceFiles(repoRoot) {
+		fmt.Printf("context: found %s\n", path)
 	}
 
 	user, err := github.CurrentUser(ctx, repoRoot)
@@ -1661,7 +1667,7 @@ func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []even
 	var b strings.Builder
 	b.WriteString("You are Codex running under simug orchestration.\n")
 	b.WriteString("Hard rules:\n")
-	b.WriteString("- Follow docs/WORKFLOW.md and docs/PLANNING.md for process and task planning.\n")
+	b.WriteString(o.promptGuidanceInstruction())
 	b.WriteString("- Do commit your completed changes locally.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
 	b.WriteString("- Do NOT push, do NOT create or modify PRs directly.\n")
@@ -1733,7 +1739,7 @@ func (o *orchestrator) buildIssueTriagePrompt(issue github.Issue, repairInstruct
 	b.WriteString("You are Codex running under simug orchestration.\n")
 	b.WriteString("No managed open PR currently exists. Perform issue triage for the selected authored issue.\n")
 	b.WriteString("Hard rules:\n")
-	b.WriteString("- Follow docs/WORKFLOW.md and docs/PLANNING.md for process and task planning.\n")
+	b.WriteString(o.promptGuidanceInstruction())
 	b.WriteString("- Do NOT push, do NOT create or modify PRs directly.\n")
 	b.WriteString("- Do NOT create commits in issue triage mode.\n")
 	b.WriteString("- Emit machine actions only with protocol lines starting exactly with SIMUG:.\n")
@@ -1771,7 +1777,7 @@ func (o *orchestrator) buildBootstrapIntentPrompt(issueTaskIntent *state.IssueTa
 	b.WriteString("Hard rules:\n")
 	b.WriteString("- Stay on main and do not create/switch branches in this turn.\n")
 	b.WriteString("- Do NOT edit files. Do NOT commit. Do NOT push. Do NOT create PR.\n")
-	b.WriteString("- Evaluate docs/PLANNING.md and docs/WORKFLOW.md to select the next task scope.\n")
+	b.WriteString(o.bootstrapIntentSelectionInstruction())
 	if issueTaskIntent != nil {
 		b.WriteString(fmt.Sprintf("- Issue-derived intake context is active: issue #%d.\n", issueTaskIntent.IssueNumber))
 		b.WriteString(fmt.Sprintf("- Issue-derived proposed task title: %s\n", limitString(strings.TrimSpace(issueTaskIntent.TaskTitle), 200)))
@@ -1802,7 +1808,7 @@ func (o *orchestrator) buildBootstrapIntentPrompt(issueTaskIntent *state.IssueTa
 func (o *orchestrator) buildBootstrapPrompt(intent state.BootstrapIntent, repairInstruction string) string {
 	var b strings.Builder
 	b.WriteString("You are Codex running under simug orchestration.\n")
-	b.WriteString("No managed open PR currently exists. Execute the approved bootstrap intent from the previous planning turn.\n")
+	b.WriteString("No managed open PR currently exists. Execute the approved bootstrap intent from the previous intent turn.\n")
 	b.WriteString("Hard rules:\n")
 	b.WriteString(fmt.Sprintf("- Create and use branch EXACTLY named: %s\n", intent.BranchName))
 	b.WriteString(fmt.Sprintf("- Approved task reference: %s\n", strings.TrimSpace(intent.TaskRef)))
@@ -1811,11 +1817,12 @@ func (o *orchestrator) buildBootstrapPrompt(intent state.BootstrapIntent, repair
 	b.WriteString(fmt.Sprintf("- Approved PR title draft: %s\n", limitString(strings.TrimSpace(intent.PRTitle), 300)))
 	b.WriteString(fmt.Sprintf("- Approved PR body draft: %s\n", limitString(strings.TrimSpace(intent.PRBody), 1200)))
 	if taskID, err := parseTaskIDFromRef(intent.TaskRef); err == nil {
-		b.WriteString(fmt.Sprintf("- Scope lock: do not switch tasks; planning status changes for other tasks are forbidden while executing Task %s.\n", taskID))
+		b.WriteString(o.bootstrapExecutionScopeInstruction(taskID))
 	}
 	if len(intent.Checks) > 0 {
 		b.WriteString(fmt.Sprintf("- Approved validation checks: %s\n", strings.Join(intent.Checks, " | ")))
 	}
+	b.WriteString(o.promptGuidanceInstruction())
 	b.WriteString("- Implement the next task and commit changes locally when complete.\n")
 	b.WriteString("- Follow task records discipline: update history/, update CHANGELOG.md, and commit with .git/SIMUG_COMMIT_MSG.\n")
 	b.WriteString("- Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.\n")
@@ -1858,9 +1865,11 @@ const (
 )
 
 type planningStatusSnapshot struct {
-	Exists       bool
-	TasksByID    map[string]planningTaskStatus
-	InProgressID []string
+	Path            string
+	Exists          bool
+	SupportedFormat bool
+	TasksByID       map[string]planningTaskStatus
+	InProgressID    []string
 }
 
 type executionScopeLock struct {
@@ -1868,6 +1877,7 @@ type executionScopeLock struct {
 	TaskID           string
 	BranchName       string
 	PlanningBaseline planningStatusSnapshot
+	PlanningEnforced bool
 }
 
 type executionReport struct {
@@ -2011,12 +2021,18 @@ func parseTaskIDFromRef(taskRef string) (string, error) {
 }
 
 func capturePlanningStatus(repoRoot string) (planningStatusSnapshot, error) {
-	path := filepath.Join(repoRoot, "docs", "PLANNING.md")
-	data, err := os.ReadFile(path)
+	path, ok := firstExistingRelativePath(repoRoot, planningGuidanceCandidates)
+	if !ok {
+		return planningStatusSnapshot{
+			TasksByID:    map[string]planningTaskStatus{},
+			InProgressID: nil,
+		}, nil
+	}
+
+	data, err := os.ReadFile(filepath.Join(repoRoot, path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return planningStatusSnapshot{
-				Exists:       false,
 				TasksByID:    map[string]planningTaskStatus{},
 				InProgressID: nil,
 			}, nil
@@ -2025,16 +2041,20 @@ func capturePlanningStatus(repoRoot string) (planningStatusSnapshot, error) {
 	}
 
 	snapshot := planningStatusSnapshot{
-		Exists:       true,
-		TasksByID:    make(map[string]planningTaskStatus),
-		InProgressID: nil,
+		Path:            path,
+		Exists:          true,
+		SupportedFormat: false,
+		TasksByID:       make(map[string]planningTaskStatus),
+		InProgressID:    nil,
 	}
 	lines := strings.Split(string(data), "\n")
+	matchedTasks := 0
 	for _, line := range lines {
 		match := planningTaskStatusPattern.FindStringSubmatch(strings.TrimSpace(line))
 		if len(match) != 3 {
 			continue
 		}
+		matchedTasks++
 		check := strings.TrimSpace(match[1])
 		taskID := strings.TrimSpace(match[2])
 		status := planningTaskTODO
@@ -2046,7 +2066,23 @@ func capturePlanningStatus(repoRoot string) (planningStatusSnapshot, error) {
 		}
 		snapshot.TasksByID[taskID] = status
 	}
+	snapshot.SupportedFormat = matchedTasks > 0
 	return snapshot, nil
+}
+
+func (s planningStatusSnapshot) supportsTask(taskID string) bool {
+	if !s.Exists || !s.SupportedFormat {
+		return false
+	}
+	_, ok := s.TasksByID[strings.TrimSpace(taskID)]
+	return ok
+}
+
+func (s planningStatusSnapshot) displayPath() string {
+	if strings.TrimSpace(s.Path) == "" {
+		return "planning status file"
+	}
+	return s.Path
 }
 
 func (o *orchestrator) newExecutionScopeLock(intent state.BootstrapIntent) (*executionScopeLock, error) {
@@ -2063,11 +2099,12 @@ func (o *orchestrator) newExecutionScopeLock(intent state.BootstrapIntent) (*exe
 		TaskID:           taskID,
 		BranchName:       strings.TrimSpace(intent.BranchName),
 		PlanningBaseline: planningBaseline,
+		PlanningEnforced: planningBaseline.supportsTask(taskID),
 	}, nil
 }
 
 func (o *orchestrator) validateExecutionScopeLock(lock *executionScopeLock) error {
-	if lock == nil {
+	if lock == nil || !lock.PlanningEnforced {
 		return nil
 	}
 
@@ -2075,8 +2112,12 @@ func (o *orchestrator) validateExecutionScopeLock(lock *executionScopeLock) erro
 	if err != nil {
 		return err
 	}
-	if lock.PlanningBaseline.Exists && !current.Exists {
-		return fmt.Errorf("execution scope lock violation: docs/PLANNING.md disappeared during locked task %s", lock.TaskID)
+	baselinePath := lock.PlanningBaseline.displayPath()
+	if !current.Exists || current.Path != lock.PlanningBaseline.Path {
+		return fmt.Errorf("execution scope lock violation: %s disappeared during locked task %s", baselinePath, lock.TaskID)
+	}
+	if !current.SupportedFormat {
+		return fmt.Errorf("execution scope lock violation: %s no longer exposes supported task status markers during locked task %s", baselinePath, lock.TaskID)
 	}
 	if len(current.InProgressID) > 1 {
 		return fmt.Errorf("execution scope lock violation: multiple [IN_PROGRESS] tasks detected: %s", strings.Join(current.InProgressID, ", "))
@@ -2085,9 +2126,6 @@ func (o *orchestrator) validateExecutionScopeLock(lock *executionScopeLock) erro
 		return fmt.Errorf("execution scope lock violation: [IN_PROGRESS] task drifted to %s (locked task is %s)", strings.TrimSpace(current.InProgressID[0]), lock.TaskID)
 	}
 
-	if !lock.PlanningBaseline.Exists {
-		return nil
-	}
 	for taskID, baselineStatus := range lock.PlanningBaseline.TasksByID {
 		if taskID == lock.TaskID {
 			continue
@@ -2184,7 +2222,7 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString(validationErr.Error())
 	b.WriteString("\n\n")
 	b.WriteString("Rules:\n")
-	b.WriteString("- follow docs/WORKFLOW.md and docs/PLANNING.md\n")
+	b.WriteString(strings.ToLower(o.promptGuidanceInstruction()))
 	b.WriteString("- commit local changes when task is complete\n")
 	b.WriteString("- maintain task records: history/, CHANGELOG.md, and .git/SIMUG_COMMIT_MSG\n")
 	b.WriteString("- use issue_update actions for issue linkage intent; do not comment on issues directly\n")
@@ -2194,8 +2232,12 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("- keep the working tree clean before finishing\n")
 	if scopeLock != nil {
 		b.WriteString(fmt.Sprintf("- execution scope lock: stay on %q and implement only %s\n", scopeLock.BranchName, scopeLock.TaskRef))
-		b.WriteString(fmt.Sprintf("- in docs/PLANNING.md, do not change status markers for tasks other than Task %s\n", scopeLock.TaskID))
-		b.WriteString(fmt.Sprintf("- at most one [IN_PROGRESS] task is allowed, and if present it must be Task %s\n", scopeLock.TaskID))
+		if scopeLock.PlanningEnforced {
+			b.WriteString(fmt.Sprintf("- in %s, do not change status markers for tasks other than Task %s\n", scopeLock.PlanningBaseline.displayPath(), scopeLock.TaskID))
+			b.WriteString(fmt.Sprintf("- at most one [IN_PROGRESS] task is allowed in %s, and if present it must be Task %s\n", scopeLock.PlanningBaseline.displayPath(), scopeLock.TaskID))
+		} else {
+			b.WriteString(fmt.Sprintf("- no supported planning status file was discovered for Task %s; if you update task-tracking docs, limit those changes to the locked task only\n", scopeLock.TaskID))
+		}
 		b.WriteString("- when terminal action is done, emit one REPORT_JSON comment with task_ref, summary, branch, and head from this run\n")
 	}
 	b.WriteString("Protocol JSON lines:\n")
@@ -2215,6 +2257,63 @@ func (o *orchestrator) generateBranchName(slug string) string {
 		normalized = "next-task"
 	}
 	return o.cfg.BranchPrefix + ts + "-" + normalized
+}
+
+func discoverGuidanceFiles(repoRoot string) []string {
+	if strings.TrimSpace(repoRoot) == "" {
+		return nil
+	}
+	files := make([]string, 0, len(promptGuidanceCandidates))
+	for _, path := range promptGuidanceCandidates {
+		fullPath := filepath.Join(repoRoot, path)
+		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+			files = append(files, path)
+		}
+	}
+	return files
+}
+
+func firstExistingRelativePath(repoRoot string, candidates []string) (string, bool) {
+	if strings.TrimSpace(repoRoot) == "" {
+		return "", false
+	}
+	for _, path := range candidates {
+		fullPath := filepath.Join(repoRoot, path)
+		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func (o *orchestrator) promptGuidanceInstruction() string {
+	files := discoverGuidanceFiles(o.repoRoot)
+	if len(files) == 0 {
+		return "- Repository workflow/planning guidance files are optional; none were discovered, so inspect the repository directly and follow the explicit coordinator constraints.\n"
+	}
+	return fmt.Sprintf("- Use repository guidance files when present: %s.\n", strings.Join(files, ", "))
+}
+
+func (o *orchestrator) bootstrapIntentSelectionInstruction() string {
+	files := discoverGuidanceFiles(o.repoRoot)
+	if len(files) == 0 {
+		return "- Repository workflow/planning guidance files are optional; none were discovered, so infer the safest next task scope from the repository state and any issue-intake context.\n"
+	}
+	return fmt.Sprintf("- Evaluate repository guidance to select the next task scope: %s.\n", strings.Join(files, ", "))
+}
+
+func (o *orchestrator) bootstrapExecutionScopeInstruction(taskID string) string {
+	snapshot, err := capturePlanningStatus(o.repoRoot)
+	if err != nil {
+		return fmt.Sprintf("- Scope lock: do not switch tasks; if any planning or task-tracking docs change, keep those changes limited to Task %s.\n", taskID)
+	}
+	if snapshot.supportsTask(taskID) {
+		return fmt.Sprintf("- Scope lock: do not switch tasks; planning status changes in %s for other tasks are forbidden while executing Task %s.\n", snapshot.displayPath(), taskID)
+	}
+	if snapshot.Exists {
+		return fmt.Sprintf("- Scope lock: do not switch tasks; %s does not expose supported status markers for Task %s, so keep any task-tracking changes limited to the approved task only.\n", snapshot.displayPath(), taskID)
+	}
+	return fmt.Sprintf("- Scope lock: do not switch tasks; no planning status file was discovered, so keep any task-tracking changes limited to Task %s only.\n", taskID)
 }
 
 func normalizePRMetadata(done agent.Action) (string, string) {

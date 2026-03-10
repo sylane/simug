@@ -82,3 +82,4 @@ https://keepachangelog.com/en/1.1.0/
 - Changed no-PR bootstrap orchestration from single-turn execution to a two-stage contract (`intent` tick, then `execution` tick) with explicit commit/no-commit invariants per stage.
 - Tightened bootstrap intent contract so `task_ref` must include canonical `Task <id>` for deterministic scope locking during execution/repair attempts.
 - Updated issue-derived bootstrap prompting/backlink semantics so triaged issue task proposals are injected into intent context, approved intent `task_ref` drives downstream task metadata, and issue backlink/comments use validated task context.
+- Updated bootstrap guidance handling to discover optional repo instruction/workflow/planning files at prompt time and to skip planning-status lock enforcement when no supported planning file covers the approved task.

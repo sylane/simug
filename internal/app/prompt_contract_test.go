@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,6 +71,28 @@ func TestBuildBootstrapIntentPromptContainsProtocolContract(t *testing.T) {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in bootstrap intent prompt:\n%s", needle, prompt)
 		}
+	}
+}
+
+func TestBuildBootstrapIntentPromptUsesDiscoveredGuidance(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("agent guidance"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "WORKFLOW.md"), []byte("workflow guidance"), 0o644); err != nil {
+		t.Fatalf("write WORKFLOW.md: %v", err)
+	}
+
+	o := orchestrator{
+		repoRoot: tmp,
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+
+	prompt := o.buildBootstrapIntentPrompt(nil, "", "")
+	if !strings.Contains(prompt, "Evaluate repository guidance to select the next task scope: AGENTS.md, WORKFLOW.md.") {
+		t.Fatalf("missing discovered guidance instruction in bootstrap intent prompt:\n%s", prompt)
 	}
 }
 
@@ -146,6 +170,38 @@ func TestBuildBootstrapExecutionPromptContainsApprovedIntent(t *testing.T) {
 	}
 }
 
+func TestBuildBootstrapExecutionPromptFallsBackWithoutSupportedPlanningStatus(t *testing.T) {
+	tmp := t.TempDir()
+	docsDir := filepath.Join(tmp, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("mkdir docs dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "PLANNING.md"), []byte("# custom planning\nnext: bootstrap safety"), 0o644); err != nil {
+		t.Fatalf("write planning file: %v", err)
+	}
+
+	o := orchestrator{
+		repoRoot: tmp,
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+
+	intent := state.BootstrapIntent{
+		TaskRef:    "Task 7.3",
+		Summary:    "make guidance optional",
+		BranchSlug: "bootstrap-context-abstraction",
+		BranchName: "agent/20260310-165033-bootstrap-context-abstraction",
+		PRTitle:    "feat(bootstrap): make guidance context optional",
+		PRBody:     "Makes bootstrap guidance optional.",
+	}
+
+	prompt := o.buildBootstrapPrompt(intent, "")
+	if !strings.Contains(prompt, "docs/PLANNING.md does not expose supported status markers for Task 7.3") {
+		t.Fatalf("missing unsupported-planning fallback in bootstrap execution prompt:\n%s", prompt)
+	}
+}
+
 func TestBuildIssueTriagePromptContainsProtocolContract(t *testing.T) {
 	o := orchestrator{
 		repo: git.Repo{Owner: "example", Name: "simug"},
@@ -210,21 +266,42 @@ func TestBuildRepairPromptIncludesExecutionScopeLockConstraints(t *testing.T) {
 		},
 	}
 	scopeLock := &executionScopeLock{
-		TaskRef:    "Task 7.2b",
-		TaskID:     "7.2b",
-		BranchName: "agent/20260308-120000-execution-scope-lock",
+		TaskRef:          "Task 7.2b",
+		TaskID:           "7.2b",
+		BranchName:       "agent/20260308-120000-execution-scope-lock",
+		PlanningEnforced: true,
+		PlanningBaseline: planningStatusSnapshot{Path: "docs/PLANNING.md"},
 	}
 
 	prompt := o.buildRepairPrompt("agent/20260308-120000-execution-scope-lock", fmt.Errorf("scope violation"), scopeLock)
 	required := []string{
 		`execution scope lock: stay on "agent/20260308-120000-execution-scope-lock" and implement only Task 7.2b`,
 		"in docs/PLANNING.md, do not change status markers for tasks other than Task 7.2b",
-		"at most one [IN_PROGRESS] task is allowed, and if present it must be Task 7.2b",
+		"at most one [IN_PROGRESS] task is allowed in docs/PLANNING.md, and if present it must be Task 7.2b",
 		"when terminal action is done, emit one REPORT_JSON comment with task_ref, summary, branch, and head from this run",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in scope-locked repair prompt:\n%s", needle, prompt)
 		}
+	}
+}
+
+func TestBuildRepairPromptFallsBackWithoutPlanningStatusLock(t *testing.T) {
+	o := orchestrator{
+		cfg: config{
+			MainBranch: "main",
+		},
+	}
+	scopeLock := &executionScopeLock{
+		TaskRef:          "Task 7.3",
+		TaskID:           "7.3",
+		BranchName:       "agent/20260310-165033-bootstrap-context-abstraction",
+		PlanningBaseline: planningStatusSnapshot{},
+	}
+
+	prompt := o.buildRepairPrompt("agent/20260310-165033-bootstrap-context-abstraction", fmt.Errorf("scope violation"), scopeLock)
+	if !strings.Contains(prompt, "no supported planning status file was discovered for Task 7.3") {
+		t.Fatalf("missing planning fallback in repair prompt:\n%s", prompt)
 	}
 }

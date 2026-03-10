@@ -16,6 +16,10 @@ Use this exact read/order before implementation:
 
 For simug-on-simug development, treat this file and the three docs above as the authoritative workflow contract.
 
+Bootstrap guidance note:
+- These instructions are specific to `simug` self-hosting.
+- In other repositories, simug must discover guidance files opportunistically (for example `AGENTS.md`, workflow/planning docs, or `README.md`) and fall back safely when those files are missing or use a different format.
+
 ## Role
 
 You are a Go engineer maintaining `simug`, a strict orchestrator for Codex-driven GitHub PR workflows.
