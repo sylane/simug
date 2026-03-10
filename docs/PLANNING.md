@@ -29,20 +29,24 @@ When phase ordering conflicts with design alignment, execute tasks in this order
 10. Task 7.3b (inline review context + review-reply correctness)
 11. Task 7.3c (bootstrap single-commit fail-closed guard)
 12. Task 7.3d (post-merge local branch cleanup + transition validation)
-13. Task 5.9 (issue linkage protocol in implementation turns)
-14. Task 5.10 (PR-scoped tracked issue ledger)
-15. Task 5.12 (close-on-merge issue finalization)
-16. Task 5.11 (development-time issue impact/fix comments)
-17. Task 5.13 (full lifecycle integration + adversarial tests)
-18. Task 6.5a (real Codex protocol conformance canary)
-19. Task 6.5b (real Codex repair/restart interaction canary)
-20. Task 6.5c (real Codex validation gate integration)
-21. Task 6.10a (Codex command auto-detection + non-interactive defaults)
-22. Task 6.10b (Codex runtime preflight diagnostics)
-23. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
-24. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
-25. Task 6.10e (runbook docs relocation to docs/runbooks/)
-26. Task 6.3+ (remaining self-hosting continuation)
+13. Task 7.4b (bounded coordinator protocol envelope + turn identity)
+14. Task 7.4c (execution-turn protocol discipline + gate decoupling)
+15. Task 7.4d (verbose progress console + full transcript log)
+16. Task 7.4e (protocol/archive forensic hardening + runtime regressions)
+17. Task 5.9 (issue linkage protocol in implementation turns)
+18. Task 5.10 (PR-scoped tracked issue ledger)
+19. Task 5.12 (close-on-merge issue finalization)
+20. Task 5.11 (development-time issue impact/fix comments)
+21. Task 5.13 (full lifecycle integration + adversarial tests)
+22. Task 6.5a (real Codex protocol conformance canary)
+23. Task 6.5b (real Codex repair/restart interaction canary)
+24. Task 6.5c (real Codex validation gate integration)
+25. Task 6.10a (Codex command auto-detection + non-interactive defaults)
+26. Task 6.10b (Codex runtime preflight diagnostics)
+27. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
+28. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
+29. Task 6.10e (runbook docs relocation to docs/runbooks/)
+30. Task 6.3+ (remaining self-hosting continuation)
 
 Rationale:
 - Design requires orchestrator/project ownership boundary first.
@@ -337,6 +341,26 @@ Execution note:
 - [x] **Task 7.4: Modularize orchestration loop**
   - Scope: split `internal/app/run.go` mode handlers, validation stages, and mutation/application paths into focused components.
   - Done when: orchestration logic has smaller cohesive units with dedicated tests and reduced duplication.
+
+- [x] **Task 7.4a: Backlog alignment for protocol reliability and transcript logging**
+  - Scope: add planning follow-up items for bounded coordinator protocol envelopes, execution-turn protocol discipline, reduced-noise verbose progress, and full durable simug<->Codex transcript logging.
+  - Done when: the next protocol/logging reliability tasks are queued immediately after Task 7.4 with dependency notes reflecting the latest multi-terminal and missing-transcript investigation.
+
+- [ ] **Task 7.4b: Bounded coordinator protocol envelope and turn identity**
+  - Scope: replace free-floating `SIMUG:` action parsing with a bounded active-turn coordinator payload that carries a unique turn/session identity, and ignore stale or echoed protocol outside that active envelope.
+  - Done when: terminal/action cardinality is derived only from the active-turn payload and echoed/duplicated protocol text cannot create false multi-terminal failures.
+
+- [ ] **Task 7.4c: Execution-turn protocol discipline and gate decoupling**
+  - Scope: reduce protocol echo risk in write-enabled turns by removing literal terminal examples from execution prompts, and decouple environment-sensitive validation-gate follow-up from the commit-producing execution turn.
+  - Done when: a successful implementation turn can finish with one deterministic machine result even if later gate/reporting work needs a separate orchestrator step or follow-up turn.
+
+- [ ] **Task 7.4d: Verbose progress console and full transcript log**
+  - Scope: keep live progress visible in verbose mode with concise structured milestones, while persisting the full timestamped simug<->Codex interaction stream to durable per-attempt log files.
+  - Done when: operators can follow high-signal progress live without console spam and reconstruct the full interaction from archived logs without relying on terminal scrollback.
+
+- [ ] **Task 7.4e: Protocol/archive forensic hardening and runtime regressions**
+  - Scope: guarantee non-empty archived raw/classified output on parser failures, persist the exact protocol lines that drove terminal counts, and add runtime regressions for duplicated terminals, echoed protocol snippets, and transcript archival fidelity.
+  - Done when: protocol failures always retain exact offending evidence and real-runtime/canary coverage reproduces multi-terminal classes deterministically.
 
 - [ ] **Task 7.5: Single-source prompt contract**
   - Scope: centralize protocol instructions/examples so runtime prompt builders and prompt tests use shared constants/renderers.
