@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"simug/internal/git"
 	"simug/internal/github"
@@ -40,6 +41,56 @@ func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
 		`SIMUG: {"action":"issue_update","issue_number":123,"relation":"fixes","comment":"Task implementation covers this issue because ..."}`,
 		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}`,
 		`SIMUG: {"action":"idle","reason":"..."}`,
+	}
+	for _, needle := range required {
+		if !strings.Contains(prompt, needle) {
+			t.Fatalf("missing %q in managed prompt:\n%s", needle, prompt)
+		}
+	}
+}
+
+func TestBuildManagedPRPromptIncludesInlineReviewContext(t *testing.T) {
+	o := orchestrator{
+		repo: git.Repo{Owner: "example", Name: "simug"},
+		cfg: config{
+			AllowedUsers: map[string]struct{}{"alice": {}},
+			AllowedVerbs: map[string]struct{}{"do": {}, "retry": {}},
+		},
+	}
+
+	line := 118
+	originalLine := 114
+	startLine := 114
+	pr := github.PullRequest{
+		Number:      42,
+		HeadRefName: "agent/20260307-120000-next-task",
+	}
+	prompt := o.buildManagedPRPrompt(pr, []event{{
+		Source:    "review_comment",
+		ID:        2001,
+		Author:    "alice",
+		Body:      "Please tighten this paragraph.",
+		CreatedAt: time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC),
+		ReviewContext: &reviewCommentContext{
+			Path:         "docs/DESIGN.md",
+			DiffHunk:     "@@ -110,7 +118,7 @@",
+			Line:         &line,
+			OriginalLine: &originalLine,
+			Side:         "RIGHT",
+			StartLine:    &startLine,
+			StartSide:    "RIGHT",
+		},
+	}}, false, "")
+
+	required := []string{
+		"Inline review context:",
+		"File: docs/DESIGN.md",
+		"Line: 118",
+		"Original line: 114",
+		"Side: RIGHT",
+		"Start line: 114",
+		"Start side: RIGHT",
+		"@@ -110,7 +118,7 @@",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {

@@ -322,7 +322,7 @@ Execution note:
   - Scope: add planning follow-up items for inline review context propagation, GitHub review-reply API correctness, bootstrap multi-commit fail-closed validation, and merged-branch cleanup after PR merge.
   - Done when: the backlog orders the new follow-up tasks before remaining Phase 7 implementation work and records dependency notes from the latest dogfood findings.
 
-- [ ] **Task 7.3b: Inline review context and review-reply correctness**
+- [x] **Task 7.3b: Inline review context and review-reply correctness**
   - Scope: carry GitHub review comment location metadata (`path`, `diff_hunk`, `line`, `original_line`, `side`, `start_line`, `start_side`) into managed-PR events/prompts, and fix review-comment replies to use the pull-number-scoped GitHub API path with regression tests.
   - Done when: Codex receives precise inline review context for focused edits, replies post successfully to top-level review comments, and tests cover prompt context plus reply endpoint shape.
 

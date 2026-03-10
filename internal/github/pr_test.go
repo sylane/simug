@@ -186,3 +186,56 @@ func TestCloseIssueUsesGhAPI(t *testing.T) {
 		t.Fatalf("CloseIssue returned error: %v", err)
 	}
 }
+
+func TestReplyToReviewCommentUsesPullScopedEndpoint(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh api repos/example/simug/pulls/42/comments/99/replies --method POST -f body=addressed": "",
+	}}
+	restore := SetCommandRunnerForTest(r)
+	defer restore()
+
+	if err := ReplyToReviewComment(context.Background(), "/tmp", "example/simug", 42, 99, "addressed"); err != nil {
+		t.Fatalf("ReplyToReviewComment returned error: %v", err)
+	}
+}
+
+func TestListReviewCommentsParsesInlineLocationMetadata(t *testing.T) {
+	r := mockCommandRunner{responses: map[string]string{
+		"gh api repos/example/simug/pulls/42/comments --paginate --slurp": `[[{
+			"id":99,
+			"body":"focus here",
+			"path":"docs/DESIGN.md",
+			"diff_hunk":"@@ -1 +1 @@",
+			"line":118,
+			"original_line":114,
+			"side":"RIGHT",
+			"start_line":114,
+			"start_side":"RIGHT",
+			"created_at":"2026-03-10T10:00:00Z",
+			"user":{"login":"alice"}
+		}]]`,
+	}}
+	restore := SetCommandRunnerForTest(r)
+	defer restore()
+
+	comments, err := ListReviewComments(context.Background(), "/tmp", "example/simug", 42)
+	if err != nil {
+		t.Fatalf("ListReviewComments returned error: %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %#v", comments)
+	}
+	comment := comments[0]
+	if comment.Path != "docs/DESIGN.md" || comment.DiffHunk != "@@ -1 +1 @@" || comment.Side != "RIGHT" || comment.StartSide != "RIGHT" {
+		t.Fatalf("unexpected inline metadata: %#v", comment)
+	}
+	if comment.Line == nil || *comment.Line != 118 {
+		t.Fatalf("line metadata missing: %#v", comment)
+	}
+	if comment.OriginalLine == nil || *comment.OriginalLine != 114 {
+		t.Fatalf("original_line metadata missing: %#v", comment)
+	}
+	if comment.StartLine == nil || *comment.StartLine != 114 {
+		t.Fatalf("start_line metadata missing: %#v", comment)
+	}
+}

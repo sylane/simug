@@ -151,10 +151,17 @@ type IssueComment struct {
 }
 
 type ReviewComment struct {
-	ID        int64     `json:"id"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
-	User      struct {
+	ID           int64     `json:"id"`
+	Body         string    `json:"body"`
+	Path         string    `json:"path"`
+	DiffHunk     string    `json:"diff_hunk"`
+	Line         *int      `json:"line"`
+	OriginalLine *int      `json:"original_line"`
+	Side         string    `json:"side"`
+	StartLine    *int      `json:"start_line"`
+	StartSide    string    `json:"start_side"`
+	CreatedAt    time.Time `json:"created_at"`
+	User         struct {
 		Login string `json:"login"`
 	} `json:"user"`
 }
@@ -271,8 +278,8 @@ func GetIssue(ctx context.Context, repoRoot, repoFullName string, number int) (I
 	return issue, nil
 }
 
-func ReplyToReviewComment(ctx context.Context, repoRoot, repoFullName string, commentID int64, body string) error {
-	path := fmt.Sprintf("repos/%s/pulls/comments/%d/replies", repoFullName, commentID)
+func ReplyToReviewComment(ctx context.Context, repoRoot, repoFullName string, prNumber int, commentID int64, body string) error {
+	path := fmt.Sprintf("repos/%s/pulls/%d/comments/%d/replies", repoFullName, prNumber, commentID)
 	_, err := run(ctx, repoRoot, "gh", "api", path, "--method", "POST", "-f", "body="+body)
 	return err
 }

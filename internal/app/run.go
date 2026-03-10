@@ -93,8 +93,19 @@ type event struct {
 	Author               string
 	Body                 string
 	CreatedAt            time.Time
+	ReviewContext        *reviewCommentContext
 	Commands             []string
 	UnauthorizedCommands []string
+}
+
+type reviewCommentContext struct {
+	Path         string
+	DiffHunk     string
+	Line         *int
+	OriginalLine *int
+	Side         string
+	StartLine    *int
+	StartSide    string
 }
 
 type eventPoll struct {
@@ -1544,7 +1555,22 @@ func (o *orchestrator) pollEvents(ctx context.Context, prNumber int) (eventPoll,
 		if !o.state.CursorUncertain && c.ID <= o.state.LastReviewCommentID {
 			continue
 		}
-		e := event{Source: "review_comment", ID: c.ID, Author: c.User.Login, Body: limitString(c.Body, maxCommentBodyChars), CreatedAt: c.CreatedAt}
+		e := event{
+			Source:    "review_comment",
+			ID:        c.ID,
+			Author:    c.User.Login,
+			Body:      limitString(c.Body, maxCommentBodyChars),
+			CreatedAt: c.CreatedAt,
+			ReviewContext: &reviewCommentContext{
+				Path:         strings.TrimSpace(c.Path),
+				DiffHunk:     strings.TrimSpace(c.DiffHunk),
+				Line:         c.Line,
+				OriginalLine: c.OriginalLine,
+				Side:         strings.TrimSpace(c.Side),
+				StartLine:    c.StartLine,
+				StartSide:    strings.TrimSpace(c.StartSide),
+			},
+		}
 		e.Commands, e.UnauthorizedCommands = parseAgentCommands(e.Body, e.Author, o.cfg.AllowedUsers, o.cfg.AllowedVerbs)
 		out.Events = append(out.Events, e)
 		out.ReviewByID[c.ID] = e
@@ -1586,7 +1612,7 @@ func (o *orchestrator) applyActions(ctx context.Context, prNumber int, actions [
 			body := limitString(strings.TrimSpace(a.Body), 60000)
 			if replyEvent, ok := poll.ReviewByID[a.CommentID]; ok {
 				o.logEvent("github_reply", "replying to review comment", map[string]any{"pr": prNumber, "comment_id": replyEvent.ID})
-				if err := github.ReplyToReviewComment(ctx, o.repoRoot, o.repo.FullName(), replyEvent.ID, body); err != nil {
+				if err := github.ReplyToReviewComment(ctx, o.repoRoot, o.repo.FullName(), prNumber, replyEvent.ID, body); err != nil {
 					return fmt.Errorf("reply to review comment %d: %w", replyEvent.ID, err)
 				}
 				continue
@@ -1724,6 +1750,32 @@ func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []even
 					b.WriteString("\n")
 				}
 			}
+			if e.ReviewContext != nil && hasReviewCommentContext(*e.ReviewContext) {
+				b.WriteString("  Inline review context:\n")
+				if e.ReviewContext.Path != "" {
+					b.WriteString(fmt.Sprintf("  - File: %s\n", e.ReviewContext.Path))
+				}
+				if e.ReviewContext.Line != nil {
+					b.WriteString(fmt.Sprintf("  - Line: %d\n", *e.ReviewContext.Line))
+				}
+				if e.ReviewContext.OriginalLine != nil {
+					b.WriteString(fmt.Sprintf("  - Original line: %d\n", *e.ReviewContext.OriginalLine))
+				}
+				if e.ReviewContext.Side != "" {
+					b.WriteString(fmt.Sprintf("  - Side: %s\n", e.ReviewContext.Side))
+				}
+				if e.ReviewContext.StartLine != nil {
+					b.WriteString(fmt.Sprintf("  - Start line: %d\n", *e.ReviewContext.StartLine))
+				}
+				if e.ReviewContext.StartSide != "" {
+					b.WriteString(fmt.Sprintf("  - Start side: %s\n", e.ReviewContext.StartSide))
+				}
+				if e.ReviewContext.DiffHunk != "" {
+					b.WriteString("  Diff hunk:\n")
+					b.WriteString(indentLines(limitString(e.ReviewContext.DiffHunk, maxCommentBodyChars), "  > "))
+					b.WriteString("\n")
+				}
+			}
 			if strings.TrimSpace(e.Body) != "" {
 				b.WriteString("  Body:\n")
 				b.WriteString(indentLines(limitString(e.Body, maxCommentBodyChars), "  > "))
@@ -1734,6 +1786,16 @@ func (o *orchestrator) buildManagedPRPrompt(pr github.PullRequest, events []even
 
 	b.WriteString("\nWhen done, emit protocol lines and finish.\n")
 	return b.String()
+}
+
+func hasReviewCommentContext(ctx reviewCommentContext) bool {
+	return ctx.Path != "" ||
+		ctx.DiffHunk != "" ||
+		ctx.Line != nil ||
+		ctx.OriginalLine != nil ||
+		ctx.Side != "" ||
+		ctx.StartLine != nil ||
+		ctx.StartSide != ""
 }
 
 func (o *orchestrator) buildIssueTriagePrompt(issue github.Issue, repairInstruction string) string {

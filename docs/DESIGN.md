@@ -226,6 +226,7 @@ This section defines the concrete simug <-> Codex interactions by use case.
 2. Simug filters actionable `/agent` commands by authorized user + allowed verb.
 3. Simug builds managed-PR prompt with:
    - new events and command context,
+   - inline review comment location context (`path`, hunk, line/side metadata) when the event source is a review comment,
    - protocol contract (`SIMUG:` / `SIMUG_MANAGER:`),
    - safety constraints (no push by Codex, clean tree required, etc.).
 4. Simug invokes Codex and parses protocol lines.
