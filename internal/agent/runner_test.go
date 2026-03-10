@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -180,6 +181,81 @@ func TestRunnerRunCapturesManagerAndQuarantinedLines(t *testing.T) {
 	}
 	if result.Terminal.Type != ActionDone {
 		t.Fatalf("terminal=%q, want %q", result.Terminal.Type, ActionDone)
+	}
+}
+
+func TestRunnerRunStreamsLinesDuringExecution(t *testing.T) {
+	var got []StreamLine
+	r := Runner{
+		Command: `printf 'SIMUG_MANAGER: hi manager\nfree text\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`,
+		OnLine: func(line StreamLine) {
+			got = append(got, line)
+		},
+	}
+
+	result, err := r.Run(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if result.Terminal.Type != ActionDone {
+		t.Fatalf("terminal=%q, want %q", result.Terminal.Type, ActionDone)
+	}
+	if len(got) != 3 {
+		t.Fatalf("streamed lines=%d, want 3", len(got))
+	}
+	if got[0].Kind != StreamKindManager || got[0].Line != "SIMUG_MANAGER: hi manager" {
+		t.Fatalf("unexpected first streamed line: %#v", got[0])
+	}
+	if got[1].Kind != StreamKindDiagnostic || got[1].Line != "free text" {
+		t.Fatalf("unexpected second streamed line: %#v", got[1])
+	}
+	if got[2].Kind != StreamKindProtocol || !strings.Contains(got[2].Line, `"action":"done"`) {
+		t.Fatalf("unexpected third streamed line: %#v", got[2])
+	}
+}
+
+func TestClassifyStreamLine(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		wantKind StreamKind
+		wantLine string
+		wantOK   bool
+	}{
+		{name: "protocol", raw: "SIMUG: {\"action\":\"done\"}\n", wantKind: StreamKindProtocol, wantLine: "SIMUG: {\"action\":\"done\"}", wantOK: true},
+		{name: "manager", raw: "SIMUG_MANAGER: hi\n", wantKind: StreamKindManager, wantLine: "SIMUG_MANAGER: hi", wantOK: true},
+		{name: "diagnostic", raw: "thinking...\n", wantKind: StreamKindDiagnostic, wantLine: "thinking...", wantOK: true},
+		{name: "blank", raw: "\n", wantOK: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := classifyStreamLine([]byte(tc.raw))
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v, want %v", ok, tc.wantOK)
+			}
+			if !tc.wantOK {
+				return
+			}
+			if got.Kind != tc.wantKind || got.Line != tc.wantLine {
+				t.Fatalf("got=%#v, want kind=%q line=%q", got, tc.wantKind, tc.wantLine)
+			}
+		})
+	}
+}
+
+func TestStreamBufferFlushEmitsPartialLine(t *testing.T) {
+	var got bytes.Buffer
+	buffer := newStreamBuffer(func(line StreamLine) {
+		got.WriteString(line.Line)
+	})
+	if _, err := buffer.Write([]byte("SIMUG_MANAGER: partial")); err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	buffer.Flush()
+	if got.String() != "SIMUG_MANAGER: partial" {
+		t.Fatalf("flushed=%q, want %q", got.String(), "SIMUG_MANAGER: partial")
 	}
 }
 

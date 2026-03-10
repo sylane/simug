@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -62,8 +64,22 @@ type Result struct {
 	QuarantinedLines []string
 }
 
+type StreamKind string
+
+const (
+	StreamKindProtocol   StreamKind = "protocol"
+	StreamKindManager    StreamKind = "manager"
+	StreamKindDiagnostic StreamKind = "diagnostic"
+)
+
+type StreamLine struct {
+	Kind StreamKind
+	Line string
+}
+
 type Runner struct {
 	Command string
+	OnLine  func(StreamLine)
 }
 
 type RunError struct {
@@ -100,8 +116,12 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 
 	cmd := exec.CommandContext(ctx, "bash", "-lc", r.Command)
 	cmd.Stdin = strings.NewReader(prompt)
-	out, err := cmd.CombinedOutput()
-	raw := string(out)
+	output := newStreamBuffer(r.OnLine)
+	cmd.Stdout = output
+	cmd.Stderr = output
+	err := cmd.Run()
+	output.Flush()
+	raw := output.RawOutput()
 	parsed, parseErr := parseRoutedOutput(raw)
 	if parseErr == nil {
 		parsed.Actions = removePromptTemplateEchoSequences(parsed.Actions)
@@ -136,6 +156,83 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 		}
 	}
 	return buildResultFromParsed(raw, parsed)
+}
+
+type streamBuffer struct {
+	onLine func(StreamLine)
+
+	mu      sync.Mutex
+	raw     bytes.Buffer
+	partial bytes.Buffer
+}
+
+func newStreamBuffer(onLine func(StreamLine)) *streamBuffer {
+	return &streamBuffer{onLine: onLine}
+}
+
+func (b *streamBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	_, _ = b.raw.Write(p)
+	lines := make([]StreamLine, 0, 1)
+	for _, ch := range p {
+		_ = b.partial.WriteByte(ch)
+		if ch == '\n' {
+			if line, ok := classifyStreamLine(b.partial.Bytes()); ok {
+				lines = append(lines, line)
+			}
+			b.partial.Reset()
+		}
+	}
+	b.mu.Unlock()
+
+	b.emit(lines)
+	return len(p), nil
+}
+
+func (b *streamBuffer) Flush() {
+	b.mu.Lock()
+	var lines []StreamLine
+	if b.partial.Len() > 0 {
+		if line, ok := classifyStreamLine(b.partial.Bytes()); ok {
+			lines = append(lines, line)
+		}
+		b.partial.Reset()
+	}
+	b.mu.Unlock()
+
+	b.emit(lines)
+}
+
+func (b *streamBuffer) RawOutput() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.raw.String()
+}
+
+func (b *streamBuffer) emit(lines []StreamLine) {
+	if b == nil || b.onLine == nil {
+		return
+	}
+	for _, line := range lines {
+		b.onLine(line)
+	}
+}
+
+func classifyStreamLine(raw []byte) (StreamLine, bool) {
+	line := strings.TrimRight(string(raw), "\r\n")
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return StreamLine{}, false
+	}
+
+	kind := StreamKindDiagnostic
+	switch {
+	case strings.HasPrefix(trimmed, protocolPrefixCurrent):
+		kind = StreamKindProtocol
+	case strings.HasPrefix(trimmed, protocolPrefixManager):
+		kind = StreamKindManager
+	}
+	return StreamLine{Kind: kind, Line: line}, true
 }
 
 func parseActions(raw string) ([]Action, error) {

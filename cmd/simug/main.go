@@ -28,14 +28,14 @@ func runMain(args []string) int {
 
 	switch cmd {
 	case "run":
-		once, help, err := parseRunArgs(args[1:])
+		once, verbose, help, err := parseRunArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "simug: %v\n", err)
 			fmt.Fprintln(os.Stderr, usageText())
 			return exitUsage
 		}
 		if help {
-			fmt.Println("usage: simug run [--once]")
+			fmt.Println("usage: simug run [--once] [-v|--verbose]")
 			return exitSuccess
 		}
 
@@ -43,9 +43,9 @@ func runMain(args []string) int {
 		defer cancel()
 
 		if once {
-			err = app.RunOnce(ctx, ".")
+			err = app.RunOnceWithOptions(ctx, ".", app.RunOptions{VerboseConsole: verbose, Console: os.Stdout})
 		} else {
-			err = app.Run(ctx, ".")
+			err = app.RunWithOptions(ctx, ".", app.RunOptions{VerboseConsole: verbose, Console: os.Stdout})
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "simug: %v\n", err)
@@ -68,20 +68,22 @@ func runMain(args []string) int {
 	return exitSuccess
 }
 
-func parseRunArgs(args []string) (once bool, help bool, err error) {
+func parseRunArgs(args []string) (once bool, verbose bool, help bool, err error) {
 	for _, arg := range args {
 		switch arg {
 		case "--once":
 			once = true
+		case "-v", "--verbose":
+			verbose = true
 		case "-h", "--help", "help":
 			help = true
 		default:
-			return false, false, fmt.Errorf("unknown run option %q", arg)
+			return false, false, false, fmt.Errorf("unknown run option %q", arg)
 		}
 	}
-	return once, help, nil
+	return once, verbose, help, nil
 }
 
 func usageText() string {
-	return "usage: simug [run [--once]|explain-last-failure]"
+	return "usage: simug [run [--once] [-v|--verbose]|explain-last-failure]"
 }

@@ -149,6 +149,12 @@ Run without building a binary (only from the `simug` source repo):
 go run ./cmd/simug run
 ```
 
+Verbose console tracing during a run:
+
+```bash
+./bin/simug run --verbose
+```
+
 Quick target discovery:
 
 ```bash
@@ -179,9 +185,12 @@ Yes, once built/installed you can run `simug` from any GitHub repository checkou
 
 ## Configuration Surface
 
-Current interface: environment variables.
+Current interface: environment variables plus a small `run` command flag surface.
 
-Planned extension: command-line flags for common runtime options (without breaking env-based automation).
+Current `run` flags:
+
+- `--once`
+- `-v`, `--verbose`
 
 Current variables:
 

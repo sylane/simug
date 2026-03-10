@@ -10,6 +10,7 @@ https://keepachangelog.com/en/1.1.0/
 ### Added
 
 - Initial changelog scaffold for `simug` task-based development workflow.
+- Added opt-in `simug run --verbose` / `-v` console tracing that mirrors per-attempt Codex prompts and live tagged Codex output (`codex[manager]`, `codex[protocol]`, `codex[raw]`) while preserving archived raw output for parsing and forensics.
 - High-fidelity orchestrator tracing in `.simug/events.log` with per-run/per-tick command traces (`git`/`gh`), exit codes, stdout/stderr tails, and explicit invariant decision events.
 - Per-attempt Codex archive artifacts under `.simug/archive/agent/...` storing prompt input, raw output, and metadata linked to run/tick/attempt context.
 - New `simug explain-last-failure` command to summarize the latest failed tick with violated invariant context and suggested next action using event and archive artifacts.

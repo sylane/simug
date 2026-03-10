@@ -324,6 +324,7 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 - For Codex commands, startup performs a preflight help probe and fails fast with actionable diagnostics for missing CLI, auth errors, or unwritable Codex runtime paths.
 - Orchestrator sends a structured prompt through stdin.
 - Orchestrator captures stdout/stderr for protocol parsing and diagnostics.
+- When `simug run --verbose` is enabled, orchestrator also mirrors the prompt plus live Codex output to the operator console, tagging manager/protocol/raw lines separately without changing archived raw output.
 - If Codex exits non-zero but emitted a valid protocol transcript with exactly one terminal action, orchestrator uses the validated protocol result; otherwise command failure remains fatal with diagnostics.
 
 ### 8.2 Mandatory behavioral constraints given to Codex
@@ -598,6 +599,11 @@ Notes:
 - `SIMUG_ALLOWED_COMMAND_USERS` (default: current authenticated user)
 - `SIMUG_ALLOWED_COMMAND_VERBS` (default: `do,retry,status,continue,comment,report,help`)
 
+CLI flags:
+
+- `simug run --once`
+- `simug run --verbose` / `simug run -v`
+
 ## 14. Observability
 
 Runtime logs print:
@@ -612,6 +618,7 @@ Runtime logs print:
 - Codex run starts/ends
 - validation failures and repair attempts
 - push/PR creation/comment/issue-link actions
+- optional live verbose console stream of prompt text plus tagged Codex output (`codex[manager]`, `codex[protocol]`, `codex[raw]`)
 
 The worker appends JSONL audit entries to `.simug/events.log`.
 

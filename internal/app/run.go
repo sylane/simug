@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,6 +52,11 @@ type config struct {
 	AllowedVerbs      map[string]struct{}
 }
 
+type RunOptions struct {
+	VerboseConsole bool
+	Console        io.Writer
+}
+
 type orchestrator struct {
 	repoRoot string
 	repo     git.Repo
@@ -61,6 +67,9 @@ type orchestrator struct {
 	logger   *eventLogger
 	runID    string
 	tickSeq  int64
+
+	verboseConsole bool
+	console        io.Writer
 }
 
 type event struct {
@@ -83,15 +92,23 @@ type eventPoll struct {
 }
 
 func Run(ctx context.Context, startDir string) error {
-	return run(ctx, startDir, false)
+	return RunWithOptions(ctx, startDir, RunOptions{})
 }
 
 // RunOnce executes exactly one orchestration tick, persists state, and exits.
 func RunOnce(ctx context.Context, startDir string) error {
-	return run(ctx, startDir, true)
+	return RunOnceWithOptions(ctx, startDir, RunOptions{})
 }
 
-func run(ctx context.Context, startDir string, once bool) error {
+func RunWithOptions(ctx context.Context, startDir string, options RunOptions) error {
+	return run(ctx, startDir, false, options)
+}
+
+func RunOnceWithOptions(ctx context.Context, startDir string, options RunOptions) error {
+	return run(ctx, startDir, true, options)
+}
+
+func run(ctx context.Context, startDir string, once bool, options RunOptions) error {
 	repoRoot, err := git.RepoRoot(ctx, startDir)
 	if err != nil {
 		return err
@@ -162,6 +179,11 @@ func run(ctx context.Context, startDir string, once bool) error {
 		st.CursorUncertain = true
 	}
 
+	console := options.Console
+	if console == nil {
+		console = os.Stdout
+	}
+
 	o := &orchestrator{
 		repoRoot: repoRoot,
 		repo:     repo,
@@ -171,6 +193,9 @@ func run(ctx context.Context, startDir string, once bool) error {
 		runner:   agent.Runner{Command: cfg.AgentCommand},
 		logger:   logger,
 		runID:    runID,
+		console:  console,
+
+		verboseConsole: options.VerboseConsole,
 	}
 	if err := o.recoverInterruptedAttempt(ctx); err != nil {
 		return err
@@ -193,6 +218,7 @@ func run(ctx context.Context, startDir string, once bool) error {
 		"command_authors":  sortedKeys(cfg.AllowedUsers),
 		"allowed_commands": sortedKeys(cfg.AllowedVerbs),
 		"once_mode":        once,
+		"verbose_console":  options.VerboseConsole,
 	})
 
 	for {
@@ -824,6 +850,10 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 				return agent.Result{}, "", err
 			}
 			runner.Command = resumeCommand
+		}
+		if o.verboseConsole {
+			o.emitVerbosePrompt(attempt+1, o.cfg.MaxRepairAttempts+1, currentPrompt, sessionID)
+			runner.OnLine = o.emitVerboseAgentLine
 		}
 
 		result, err := runner.Run(ctx, currentPrompt)

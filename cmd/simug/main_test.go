@@ -7,18 +7,21 @@ func TestParseRunArgs(t *testing.T) {
 		name      string
 		args      []string
 		wantOnce  bool
+		wantVerb  bool
 		wantHelp  bool
 		expectErr bool
 	}{
-		{name: "default", args: nil, wantOnce: false, wantHelp: false},
-		{name: "once", args: []string{"--once"}, wantOnce: true, wantHelp: false},
-		{name: "help", args: []string{"--help"}, wantOnce: false, wantHelp: true},
+		{name: "default", args: nil, wantOnce: false, wantVerb: false, wantHelp: false},
+		{name: "once", args: []string{"--once"}, wantOnce: true, wantVerb: false, wantHelp: false},
+		{name: "verbose", args: []string{"--verbose"}, wantOnce: false, wantVerb: true, wantHelp: false},
+		{name: "short verbose", args: []string{"-v"}, wantOnce: false, wantVerb: true, wantHelp: false},
+		{name: "help", args: []string{"--help"}, wantOnce: false, wantVerb: false, wantHelp: true},
 		{name: "unknown", args: []string{"--bad"}, expectErr: true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotOnce, gotHelp, err := parseRunArgs(tc.args)
+			gotOnce, gotVerb, gotHelp, err := parseRunArgs(tc.args)
 			if tc.expectErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -30,6 +33,9 @@ func TestParseRunArgs(t *testing.T) {
 			}
 			if gotOnce != tc.wantOnce {
 				t.Fatalf("once=%v, want %v", gotOnce, tc.wantOnce)
+			}
+			if gotVerb != tc.wantVerb {
+				t.Fatalf("verbose=%v, want %v", gotVerb, tc.wantVerb)
 			}
 			if gotHelp != tc.wantHelp {
 				t.Fatalf("help=%v, want %v", gotHelp, tc.wantHelp)

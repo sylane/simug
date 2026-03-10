@@ -393,7 +393,7 @@ Execution note:
   - Scope: formalize coordinator vs manager interaction contract, including how coordinator instructs Codex about both entities and mandatory output prefixes (`SIMUG:` vs `SIMUG_MANAGER:`).
   - Done when: Codex interaction is explicitly multiplexed with machine-friendly and human-friendly channels.
 
-- [ ] **Task 10.2: Live console stream with channel filtering**
+- [x] **Task 10.2: Live console stream with channel filtering**
   - Scope: stream Codex conversation/events in real time while filtering/routing coordinator protocol vs manager-facing text cleanly in console output.
   - Done when: operator sees meaningful manager-facing output without protocol noise, and coordinator keeps full machine trace.
 
