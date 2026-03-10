@@ -334,7 +334,7 @@ Execution note:
   - Scope: preserve the existing merged-branch -> `main` checkout and fast-forward sync path during no-PR intake, then delete the merged managed local branch only after merge validation, with deterministic tests and self-host validation for merge -> cleanup -> next intake.
   - Done when: merged managed branches do not accumulate locally, merge transitions preserve fail-closed state guarantees, and automated coverage proves the cleanup path.
 
-- [ ] **Task 7.4: Modularize orchestration loop**
+- [x] **Task 7.4: Modularize orchestration loop**
   - Scope: split `internal/app/run.go` mode handlers, validation stages, and mutation/application paths into focused components.
   - Done when: orchestration logic has smaller cohesive units with dedicated tests and reduced duplication.
 
