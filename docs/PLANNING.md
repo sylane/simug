@@ -26,20 +26,23 @@ When phase ordering conflicts with design alignment, execute tasks in this order
 7. Task 7.2e (attempt-level observability + forensic artifacts)
 8. Task 7.2f (same-session continuity for staged intent/execute/repair turns)
 9. Task 7.3 (optional bootstrap context; no hard-required docs format)
-10. Task 5.9 (issue linkage protocol in implementation turns)
-11. Task 5.10 (PR-scoped tracked issue ledger)
-12. Task 5.12 (close-on-merge issue finalization)
-13. Task 5.11 (development-time issue impact/fix comments)
-14. Task 5.13 (full lifecycle integration + adversarial tests)
-15. Task 6.5a (real Codex protocol conformance canary)
-16. Task 6.5b (real Codex repair/restart interaction canary)
-17. Task 6.5c (real Codex validation gate integration)
-18. Task 6.10a (Codex command auto-detection + non-interactive defaults)
-19. Task 6.10b (Codex runtime preflight diagnostics)
-20. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
-21. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
-22. Task 6.10e (runbook docs relocation to docs/runbooks/)
-23. Task 6.3+ (remaining self-hosting continuation)
+10. Task 7.3b (inline review context + review-reply correctness)
+11. Task 7.3c (bootstrap single-commit fail-closed guard)
+12. Task 7.3d (post-merge local branch cleanup + transition validation)
+13. Task 5.9 (issue linkage protocol in implementation turns)
+14. Task 5.10 (PR-scoped tracked issue ledger)
+15. Task 5.12 (close-on-merge issue finalization)
+16. Task 5.11 (development-time issue impact/fix comments)
+17. Task 5.13 (full lifecycle integration + adversarial tests)
+18. Task 6.5a (real Codex protocol conformance canary)
+19. Task 6.5b (real Codex repair/restart interaction canary)
+20. Task 6.5c (real Codex validation gate integration)
+21. Task 6.10a (Codex command auto-detection + non-interactive defaults)
+22. Task 6.10b (Codex runtime preflight diagnostics)
+23. Task 6.10c (environment-configured Codex compatibility + passing real-Codex gate)
+24. Task 6.10d (workflow enforcement of real-Codex gate for all future tasks)
+25. Task 6.10e (runbook docs relocation to docs/runbooks/)
+26. Task 6.3+ (remaining self-hosting continuation)
 
 Rationale:
 - Design requires orchestrator/project ownership boundary first.
@@ -314,6 +317,22 @@ Execution note:
 - [x] **Task 7.3: Bootstrap context abstraction (no hard-required docs format)**
   - Scope: make prompt bootstrap context optional/discoverable and configurable per repo, with no hard dependency on `docs/WORKFLOW.md` or `docs/PLANNING.md` existence/format.
   - Done when: simug orchestrates safely in repositories that do not provide these files, and `docs/DESIGN.md` + `AGENTS.md` clarify guidance-file handling and fallback behavior.
+
+- [x] **Task 7.3a: Backlog alignment for dogfood review gaps**
+  - Scope: add planning follow-up items for inline review context propagation, GitHub review-reply API correctness, bootstrap multi-commit fail-closed validation, and merged-branch cleanup after PR merge.
+  - Done when: the backlog orders the new follow-up tasks before remaining Phase 7 implementation work and records dependency notes from the latest dogfood findings.
+
+- [ ] **Task 7.3b: Inline review context and review-reply correctness**
+  - Scope: carry GitHub review comment location metadata (`path`, `diff_hunk`, `line`, `original_line`, `side`, `start_line`, `start_side`) into managed-PR events/prompts, and fix review-comment replies to use the pull-number-scoped GitHub API path with regression tests.
+  - Done when: Codex receives precise inline review context for focused edits, replies post successfully to top-level review comments, and tests cover prompt context plus reply endpoint shape.
+
+- [ ] **Task 7.3c: Bootstrap execution single-commit fail-closed guard**
+  - Scope: reject bootstrap execution or repair flows that accumulate more than one commit from the staged baseline, abort when failed attempts already advanced `HEAD`, and add regression tests for the multi-commit repair stack described in `../TEMP.md`.
+  - Done when: pre-push bootstrap validation requires exactly one execution commit for the approved task and repair cannot silently stack extra implementation commits.
+
+- [ ] **Task 7.3d: Post-merge local branch cleanup and transition validation**
+  - Scope: preserve the existing merged-branch -> `main` checkout and fast-forward sync path during no-PR intake, then delete the merged managed local branch only after merge validation, with deterministic tests and self-host validation for merge -> cleanup -> next intake.
+  - Done when: merged managed branches do not accumulate locally, merge transitions preserve fail-closed state guarantees, and automated coverage proves the cleanup path.
 
 - [ ] **Task 7.4: Modularize orchestration loop**
   - Scope: split `internal/app/run.go` mode handlers, validation stages, and mutation/application paths into focused components.

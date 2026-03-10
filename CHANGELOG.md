@@ -68,6 +68,7 @@ https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Refined the Phase 7 backlog to queue follow-up work for inline review-context propagation, review-comment reply endpoint correctness, bootstrap single-commit fail-closed validation, and merged-branch local cleanup ahead of `Task 7.4`.
 - Removed legacy orchestrator-side planning insertion during issue triage; `issue_report.needs_task=true` now records intent without mutating project files, preserving the `.simug/*`-only runtime write boundary.
 - Updated issue-to-PR backlink behavior to remain idempotent when no `pending_task_id` is present, keeping issue traceability without requiring orchestrator planning edits.
 - Updated design documentation to reflect that runtime orchestrator writes are limited to `.simug/*` artifacts and no longer include transitional planning-file mutation caveats.
