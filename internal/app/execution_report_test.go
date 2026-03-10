@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"simug/internal/agent"
+	"simug/internal/git"
 	"simug/internal/state"
 )
 
@@ -101,5 +103,27 @@ func TestValidateExecutionReportRejectsBranchMismatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "does not match expected branch") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateBootstrapExecutionCommitCountRejectsMultipleCommits(t *testing.T) {
+	restoreGit := git.SetCommandRunnerForTest(mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-list", "--count", "abc123..def456"): "2\n",
+	}})
+	defer restoreGit()
+
+	err := validateBootstrapExecutionCommitCount(context.Background(), "/tmp", "abc123", "def456", agent.ActionDone)
+	if err == nil {
+		t.Fatalf("expected commit-count validation error")
+	}
+	if !strings.Contains(err.Error(), "exactly 1 commit") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateBootstrapExecutionCommitCountSkipsIdleRuns(t *testing.T) {
+	err := validateBootstrapExecutionCommitCount(context.Background(), "/tmp", "abc123", "abc123", agent.ActionIdle)
+	if err != nil {
+		t.Fatalf("expected idle run to skip commit-count validation, got %v", err)
 	}
 }

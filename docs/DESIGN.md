@@ -55,6 +55,7 @@ These invariants are enforced on every loop iteration.
 15. `task_bootstrap` execution runs are allowed only after a previously approved, persisted bootstrap intent.
 16. During locked `task_bootstrap` execution, planning status drift outside the approved task is rejected when a discovered planning file exposes supported task-status markers for the locked task; otherwise scope remains bound by approved intent/branch/report validation only.
 17. When a staged bootstrap session id is available, execution/repair turns must resume that same Codex session id.
+18. Bootstrap execution must produce exactly one new commit from the approved baseline; if a failed bootstrap attempt advances `HEAD` before successful validation, automatic repair/restart recovery must abort fail-closed.
 
 ## 3. Managed PR Definition
 
@@ -134,10 +135,11 @@ When no managed open PR exists:
    - planning status changes for tasks other than the approved task are forbidden.
 10. Validate Codex output:
    - branch matches managed pattern,
-   - at least one new commit exists for `done + changes=true`,
+   - exactly one new commit exists for `done + changes=true`,
    - working tree is clean,
    - structured execution report payload (`REPORT_JSON`) matches approved task/branch/post-run head,
-   - observed session id (when emitted) matches persisted `bootstrap_session_id`.
+   - observed session id (when emitted) matches persisted `bootstrap_session_id`,
+   - failed bootstrap attempts that already advanced `HEAD` do not enter automatic repair/replay.
 11. Orchestrator pushes branch and creates PR assigned to self.
 12. If bootstrap came from issue triage, orchestrator adds an issue comment linking the created PR plus task context (`Task <id>` from approved intent).
 13. Store new PR as active and begin monitoring.

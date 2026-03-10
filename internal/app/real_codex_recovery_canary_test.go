@@ -66,7 +66,7 @@ func TestRealCodexRepairInteractionCanary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	result, _, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, false, false, nil, "", nil)
+	result, _, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, false, false, nil, "", false, nil)
 	cr := recoveryCanaryResult{Name: "repair-interaction"}
 	if err != nil {
 		cr.Passed = false

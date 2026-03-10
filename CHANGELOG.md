@@ -68,6 +68,7 @@ https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Bootstrap execution now requires exactly one commit from the staged baseline, and simug aborts automatic bootstrap repair/recovery when a failed attempt already advanced `HEAD`.
 - Managed-PR prompts now include inline review comment file/hunk/line metadata, and review-comment replies use the pull-number-scoped GitHub API path expected by GitHub.
 - Refined the Phase 7 backlog to queue follow-up work for inline review-context propagation, review-comment reply endpoint correctness, bootstrap single-commit fail-closed validation, and merged-branch local cleanup ahead of `Task 7.4`.
 - Removed legacy orchestrator-side planning insertion during issue triage; `issue_report.needs_task=true` now records intent without mutating project files, preserving the `.simug/*`-only runtime write boundary.

@@ -326,7 +326,7 @@ Execution note:
   - Scope: carry GitHub review comment location metadata (`path`, `diff_hunk`, `line`, `original_line`, `side`, `start_line`, `start_side`) into managed-PR events/prompts, and fix review-comment replies to use the pull-number-scoped GitHub API path with regression tests.
   - Done when: Codex receives precise inline review context for focused edits, replies post successfully to top-level review comments, and tests cover prompt context plus reply endpoint shape.
 
-- [ ] **Task 7.3c: Bootstrap execution single-commit fail-closed guard**
+- [x] **Task 7.3c: Bootstrap execution single-commit fail-closed guard**
   - Scope: reject bootstrap execution or repair flows that accumulate more than one commit from the staged baseline, abort when failed attempts already advanced `HEAD`, and add regression tests for the multi-commit repair stack described in `../TEMP.md`.
   - Done when: pre-push bootstrap validation requires exactly one execution commit for the approved task and repair cannot silently stack extra implementation commits.
 

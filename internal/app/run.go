@@ -403,7 +403,7 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	}
 
 	prompt := o.buildManagedPRPrompt(pr, poll.Events, o.state.CursorUncertain, "")
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, "", func(result agent.Result, _, _ string) error {
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, pr.HeadRefName, beforeHead, false, false, nil, "", false, func(result agent.Result, _, _ string) error {
 		return validateIssueUpdateActions(result.Actions)
 	})
 	if err != nil {
@@ -614,7 +614,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 			var report agent.Action
 			prompt := o.buildIssueTriagePrompt(*selected, "")
-			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, "", func(result agent.Result, _, _ string) error {
+			_, _, err = o.runAgentWithValidation(ctx, prompt, o.cfg.MainBranch, beforeHead, false, true, nil, "", false, func(result agent.Result, _, _ string) error {
 				r, validateErr := validateIssueTriageResult(result, selected.Number)
 				if validateErr != nil {
 					return validateErr
@@ -673,7 +673,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 
 		var approved state.BootstrapIntent
 		intentPrompt := o.buildBootstrapIntentPrompt(o.state.IssueTaskIntent, o.state.PendingTaskID, "")
-		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, o.state.BootstrapSessionID, func(result agent.Result, _, _ string) error {
+		intentResult, afterHead, err := o.runAgentWithValidation(ctx, intentPrompt, o.cfg.MainBranch, beforeHead, false, true, nil, o.state.BootstrapSessionID, false, func(result agent.Result, _, _ string) error {
 			intent, validateErr := o.validateBootstrapIntentResult(result, o.state.PendingTaskID)
 			if validateErr != nil {
 				return validateErr
@@ -742,7 +742,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	prompt := o.buildBootstrapPrompt(intent, "")
 	var report executionReport
 	var actionsForApply []agent.Action
-	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, o.state.BootstrapSessionID, func(result agent.Result, before, after string) error {
+	result, afterHead, err := o.runAgentWithValidation(ctx, prompt, expectedBranch, beforeHead, true, true, scopeLock, o.state.BootstrapSessionID, true, func(result agent.Result, before, after string) error {
 		if err := validateIssueUpdateActions(result.Actions); err != nil {
 			return err
 		}
@@ -751,6 +751,9 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 		}
 		validatedReport, filteredActions, err := validateExecutionReport(result, intent, expectedBranch, before, after)
 		if err != nil {
+			return err
+		}
+		if err := validateBootstrapExecutionCommitCount(ctx, o.repoRoot, before, after, result.Terminal.Type); err != nil {
 			return err
 		}
 		report = validatedReport
@@ -844,7 +847,7 @@ func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
 	return nil
 }
 
-func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, sessionID string, validateResult func(agent.Result, string, string) error) (agent.Result, string, error) {
+func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expectedBranch, beforeHead string, requireCommitForDone, allowIdleOnMain bool, scopeLock *executionScopeLock, sessionID string, failClosedOnHeadAdvance bool, validateResult func(agent.Result, string, string) error) (agent.Result, string, error) {
 	currentPrompt := prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, expectedBranch, beforeHead, currentPrompt); err != nil {
@@ -878,8 +881,16 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 		result, err := runner.Run(ctx, currentPrompt)
 		if err != nil {
 			rawOutput := agent.RawOutputFromError(err)
+			afterHead := ""
+			if failClosedOnHeadAdvance {
+				observedHead, headErr := git.HeadSHA(ctx, o.repoRoot)
+				if headErr != nil {
+					return agent.Result{}, "", fmt.Errorf("read HEAD after failed bootstrap attempt: %w", headErr)
+				}
+				afterHead = observedHead
+			}
 			diagnostics := buildAttemptArchiveDiagnostics(rawOutput, nil, err, nil)
-			if journalErr := o.recordInFlightAttemptResult(attempt+1, "", "", err.Error(), ""); journalErr != nil {
+			if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, "", err.Error(), ""); journalErr != nil {
 				return agent.Result{}, "", journalErr
 			}
 			paths, archiveErr := o.archiveAgentAttempt(
@@ -887,7 +898,7 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 				o.cfg.MaxRepairAttempts+1,
 				expectedBranch,
 				beforeHead,
-				"",
+				afterHead,
 				currentPrompt,
 				rawOutput,
 				"",
@@ -924,6 +935,10 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 				"attempt": attempt + 1,
 				"error":   err.Error(),
 			})
+
+			if failClosedOnHeadAdvance && strings.TrimSpace(afterHead) != strings.TrimSpace(beforeHead) {
+				return agent.Result{}, "", fmt.Errorf("bootstrap attempt advanced HEAD from %q to %q before successful validation; refusing automatic repair after execution/protocol failure: %w", beforeHead, afterHead, err)
+			}
 
 			if attempt >= o.cfg.MaxRepairAttempts {
 				return agent.Result{}, "", fmt.Errorf("agent failed after %d attempts with execution/protocol errors: %w", attempt+1, err)
@@ -1016,6 +1031,9 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 			"terminal_has_changes": result.Terminal.Changes,
 			"error":                validationErr.Error(),
 		})
+		if failClosedOnHeadAdvance && strings.TrimSpace(afterHead) != strings.TrimSpace(beforeHead) {
+			return agent.Result{}, "", fmt.Errorf("bootstrap attempt advanced HEAD from %q to %q before successful validation; refusing automatic repair after validation failure: %w", beforeHead, afterHead, validationErr)
+		}
 		if attempt >= o.cfg.MaxRepairAttempts {
 			return agent.Result{}, "", fmt.Errorf("agent failed validation after %d attempts: %w", attempt+1, validationErr)
 		}
@@ -1074,6 +1092,20 @@ func (o *orchestrator) validatePostAgentState(ctx context.Context, result agent.
 	}
 
 	return afterHead, nil
+}
+
+func validateBootstrapExecutionCommitCount(ctx context.Context, repoRoot, beforeHead, afterHead string, terminalType agent.ActionType) error {
+	if terminalType != agent.ActionDone {
+		return nil
+	}
+	count, err := git.CommitCountBetween(ctx, repoRoot, beforeHead, afterHead)
+	if err != nil {
+		return fmt.Errorf("count bootstrap execution commits between %s and %s: %w", beforeHead, afterHead, err)
+	}
+	if count != 1 {
+		return fmt.Errorf("bootstrap execution must produce exactly 1 commit from staged baseline; observed %d commit(s)", count)
+	}
+	return nil
 }
 
 func validateIssueTriageResult(result agent.Result, expectedIssue int) (agent.Action, error) {

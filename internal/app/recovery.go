@@ -81,6 +81,12 @@ func (o *orchestrator) decideRecoveryAction(ctx context.Context, attempt state.A
 	if branch != expected {
 		return state.RecoveryRepair, fmt.Sprintf("current branch %q differs from expected %q", branch, expected)
 	}
+	if attempt.Mode == state.ModeTaskBootstrap &&
+		strings.TrimSpace(attempt.AfterHead) != "" &&
+		strings.TrimSpace(attempt.AfterHead) != strings.TrimSpace(attempt.BeforeHead) &&
+		(strings.TrimSpace(attempt.AgentError) != "" || strings.TrimSpace(attempt.ValidationErr) != "") {
+		return state.RecoveryAbort, fmt.Sprintf("bootstrap attempt advanced HEAD from %q to %q before succeeding; refusing replay/repair", attempt.BeforeHead, attempt.AfterHead)
+	}
 
 	switch attempt.Phase {
 	case state.AttemptPhaseValidated:

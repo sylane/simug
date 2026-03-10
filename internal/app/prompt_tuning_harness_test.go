@@ -67,7 +67,7 @@ func TestPromptTuningHarnessRecoversFromProtocolFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil, "", nil)
+	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil, "", false, nil)
 	if err != nil {
 		t.Fatalf("runAgentWithValidation returned error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestPromptTuningHarnessRecoversFromValidationFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil, "", nil)
+	result, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil, "", false, nil)
 	if err != nil {
 		t.Fatalf("runAgentWithValidation returned error: %v", err)
 	}
@@ -153,11 +153,60 @@ func TestPromptTuningHarnessFailsAfterBoundedProtocolRetries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil, "", nil)
+	_, _, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, false, false, nil, "", false, nil)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
 	if !strings.Contains(err.Error(), "failed after 2 attempts") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunAgentWithValidationFailsClosedWhenBootstrapProtocolFailureAdvancedHead(t *testing.T) {
+	tmp := t.TempDir()
+	expectedBranch := "agent/20260307-120000-next-task"
+	beforeHead := "abcdef"
+	afterHead := "fedcba"
+
+	restoreGit := git.SetCommandRunnerForTest(mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"): expectedBranch + "\n",
+		commandKey("git", "status", "--porcelain"):             "\n",
+		commandKey("git", "rev-parse", "HEAD"):                 afterHead + "\n",
+	}})
+	defer restoreGit()
+
+	o := orchestrator{
+		repoRoot: tmp,
+		state:    &state.State{Mode: state.ModeTaskBootstrap},
+		cfg: config{
+			MainBranch:        "main",
+			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
+			MaxRepairAttempts: 1,
+		},
+		runner:  agent.Runner{Command: `printf 'SIMUG: {bad-json}\n'`},
+		runID:   "run-harness",
+		tickSeq: 1,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, gotAfterHead, err := o.runAgentWithValidation(ctx, "initial prompt", expectedBranch, beforeHead, true, true, nil, "", true, nil)
+	if err == nil {
+		t.Fatalf("expected fail-closed error")
+	}
+	if gotAfterHead != "" {
+		t.Fatalf("afterHead=%q, want empty on fail-closed abort", gotAfterHead)
+	}
+	if !strings.Contains(err.Error(), "refusing automatic repair after execution/protocol failure") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	paths, globErr := filepath.Glob(filepath.Join(tmp, ".simug", "archive", "agent", "run-harness", "tick-000001", "attempt-*"))
+	if globErr != nil {
+		t.Fatalf("glob attempt archives: %v", globErr)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 archived attempt, got %d (%v)", len(paths), paths)
 	}
 }

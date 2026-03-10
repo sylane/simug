@@ -1676,6 +1676,92 @@ func TestRunRecoveryAbortOnDirtyTree(t *testing.T) {
 	}
 }
 
+func TestRunRecoveryAbortWhenFailedBootstrapAttemptAdvancedHead(t *testing.T) {
+	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "task_bootstrap",
+  "bootstrap_intent": {
+    "task_ref": "Task 7.3c",
+    "summary": "guard bootstrap commits",
+    "branch_slug": "bootstrap-single-commit-guard",
+    "branch_name": "agent/20260310-120000-bootstrap-single-commit-guard",
+    "pr_title": "fix: guard bootstrap commits",
+    "pr_body": "Prevents stacked bootstrap commits",
+    "approved_at": "2026-03-08T01:00:00Z"
+  },
+  "in_flight_attempt": {
+    "run_id": "old-run",
+    "tick_seq": 4,
+    "attempt_index": 1,
+    "max_attempts": 2,
+    "expected_branch": "agent/20260310-120000-bootstrap-single-commit-guard",
+    "mode": "task_bootstrap",
+    "phase": "failed",
+    "prompt_hash": "abc123",
+    "before_head": "deadbeef",
+    "after_head": "feedface",
+    "validation_error": "execution report validation requires exactly one REPORT_JSON comment, got 3",
+    "started_at": "2026-03-08T01:00:00Z",
+    "updated_at": "2026-03-08T01:00:00Z"
+  },
+  "updated_at": "2026-03-08T01:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"):      tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):       "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"):      "alice\n",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"): "agent/20260310-120000-bootstrap-single-commit-guard\n",
+		commandKey("git", "status", "--porcelain"):             "\n",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	err := Run(context.Background(), tmp)
+	if err == nil {
+		t.Fatalf("expected recovery abort error")
+	}
+	if !strings.Contains(err.Error(), "restart recovery abort") || !strings.Contains(err.Error(), "advanced HEAD") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stateData, readErr := os.ReadFile(filepath.Join(tmp, ".simug", "state.json"))
+	if readErr != nil {
+		t.Fatalf("read state file: %v", readErr)
+	}
+	var st struct {
+		LastRecovery struct {
+			Action string `json:"action"`
+			Reason string `json:"reason"`
+		} `json:"last_recovery"`
+		InFlightAttempt any `json:"in_flight_attempt"`
+	}
+	if err := json.Unmarshal(stateData, &st); err != nil {
+		t.Fatalf("decode state file: %v", err)
+	}
+	if st.LastRecovery.Action != "abort" {
+		t.Fatalf("last_recovery.action=%q, want abort", st.LastRecovery.Action)
+	}
+	if !strings.Contains(st.LastRecovery.Reason, "advanced HEAD") {
+		t.Fatalf("unexpected last_recovery.reason: %q", st.LastRecovery.Reason)
+	}
+	if st.InFlightAttempt == nil {
+		t.Fatalf("expected in_flight_attempt retained after abort")
+	}
+}
+
 func TestRunNoOpenPRFailsOnFetchOriginError(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
