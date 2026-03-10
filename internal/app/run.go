@@ -40,7 +40,7 @@ var bootstrapIntentSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{2,40}$`)
 var taskRefIDPattern = regexp.MustCompile(`(?i)\btask\s+([0-9]+\.[0-9]+[a-z]?)\b`)
 var planningTaskStatusPattern = regexp.MustCompile(`^- \[( |x)\] \*\*(?:\[IN_PROGRESS\] )?Task ([0-9]+\.[0-9]+[a-z]?):`)
 var codexSessionIDPattern = regexp.MustCompile(`^[0-9a-fA-F-]{8,}$`)
-var promptGuidanceCandidates = []string{
+var defaultPromptGuidanceCandidates = []string{
 	"AGENTS.md",
 	"AGENT.md",
 	"docs/WORKFLOW.md",
@@ -49,20 +49,22 @@ var promptGuidanceCandidates = []string{
 	"PLANNING.md",
 	"README.md",
 }
-var planningGuidanceCandidates = []string{
+var defaultPlanningGuidanceCandidates = []string{
 	"docs/PLANNING.md",
 	"PLANNING.md",
 }
 
 type config struct {
-	PollInterval      time.Duration
-	MainBranch        string
-	BranchPrefix      string
-	BranchPattern     *regexp.Regexp
-	AgentCommand      string
-	MaxRepairAttempts int
-	AllowedUsers      map[string]struct{}
-	AllowedVerbs      map[string]struct{}
+	PollInterval       time.Duration
+	MainBranch         string
+	BranchPrefix       string
+	BranchPattern      *regexp.Regexp
+	AgentCommand       string
+	MaxRepairAttempts  int
+	AllowedUsers       map[string]struct{}
+	AllowedVerbs       map[string]struct{}
+	GuidanceCandidates []string
+	PlanningCandidates []string
 }
 
 type RunOptions struct {
@@ -164,7 +166,7 @@ func run(ctx context.Context, startDir string, once bool, options RunOptions) er
 		return err
 	}
 
-	for _, path := range discoverGuidanceFiles(repoRoot) {
+	for _, path := range discoverGuidanceFilesWithCandidates(repoRoot, cfg.guidanceCandidates()) {
 		fmt.Printf("context: found %s\n", path)
 	}
 
@@ -2021,7 +2023,11 @@ func parseTaskIDFromRef(taskRef string) (string, error) {
 }
 
 func capturePlanningStatus(repoRoot string) (planningStatusSnapshot, error) {
-	path, ok := firstExistingRelativePath(repoRoot, planningGuidanceCandidates)
+	return capturePlanningStatusWithCandidates(repoRoot, defaultPlanningGuidanceCandidates)
+}
+
+func capturePlanningStatusWithCandidates(repoRoot string, candidates []string) (planningStatusSnapshot, error) {
+	path, ok := firstExistingRelativePath(repoRoot, candidates)
 	if !ok {
 		return planningStatusSnapshot{
 			TasksByID:    map[string]planningTaskStatus{},
@@ -2090,7 +2096,7 @@ func (o *orchestrator) newExecutionScopeLock(intent state.BootstrapIntent) (*exe
 	if err != nil {
 		return nil, fmt.Errorf("derive execution scope lock from intent: %w", err)
 	}
-	planningBaseline, err := capturePlanningStatus(o.repoRoot)
+	planningBaseline, err := capturePlanningStatusWithCandidates(o.repoRoot, o.cfg.planningCandidates())
 	if err != nil {
 		return nil, err
 	}
@@ -2108,7 +2114,7 @@ func (o *orchestrator) validateExecutionScopeLock(lock *executionScopeLock) erro
 		return nil
 	}
 
-	current, err := capturePlanningStatus(o.repoRoot)
+	current, err := capturePlanningStatusWithCandidates(o.repoRoot, o.cfg.planningCandidates())
 	if err != nil {
 		return err
 	}
@@ -2260,11 +2266,18 @@ func (o *orchestrator) generateBranchName(slug string) string {
 }
 
 func discoverGuidanceFiles(repoRoot string) []string {
+	return discoverGuidanceFilesWithCandidates(repoRoot, defaultPromptGuidanceCandidates)
+}
+
+func discoverGuidanceFilesWithCandidates(repoRoot string, candidates []string) []string {
 	if strings.TrimSpace(repoRoot) == "" {
 		return nil
 	}
-	files := make([]string, 0, len(promptGuidanceCandidates))
-	for _, path := range promptGuidanceCandidates {
+	if len(candidates) == 0 {
+		candidates = defaultPromptGuidanceCandidates
+	}
+	files := make([]string, 0, len(candidates))
+	for _, path := range candidates {
 		fullPath := filepath.Join(repoRoot, path)
 		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
 			files = append(files, path)
@@ -2277,6 +2290,9 @@ func firstExistingRelativePath(repoRoot string, candidates []string) (string, bo
 	if strings.TrimSpace(repoRoot) == "" {
 		return "", false
 	}
+	if len(candidates) == 0 {
+		candidates = defaultPlanningGuidanceCandidates
+	}
 	for _, path := range candidates {
 		fullPath := filepath.Join(repoRoot, path)
 		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
@@ -2287,7 +2303,7 @@ func firstExistingRelativePath(repoRoot string, candidates []string) (string, bo
 }
 
 func (o *orchestrator) promptGuidanceInstruction() string {
-	files := discoverGuidanceFiles(o.repoRoot)
+	files := discoverGuidanceFilesWithCandidates(o.repoRoot, o.cfg.guidanceCandidates())
 	if len(files) == 0 {
 		return "- Repository workflow/planning guidance files are optional; none were discovered, so inspect the repository directly and follow the explicit coordinator constraints.\n"
 	}
@@ -2295,7 +2311,7 @@ func (o *orchestrator) promptGuidanceInstruction() string {
 }
 
 func (o *orchestrator) bootstrapIntentSelectionInstruction() string {
-	files := discoverGuidanceFiles(o.repoRoot)
+	files := discoverGuidanceFilesWithCandidates(o.repoRoot, o.cfg.guidanceCandidates())
 	if len(files) == 0 {
 		return "- Repository workflow/planning guidance files are optional; none were discovered, so infer the safest next task scope from the repository state and any issue-intake context.\n"
 	}
@@ -2303,7 +2319,7 @@ func (o *orchestrator) bootstrapIntentSelectionInstruction() string {
 }
 
 func (o *orchestrator) bootstrapExecutionScopeInstruction(taskID string) string {
-	snapshot, err := capturePlanningStatus(o.repoRoot)
+	snapshot, err := capturePlanningStatusWithCandidates(o.repoRoot, o.cfg.planningCandidates())
 	if err != nil {
 		return fmt.Sprintf("- Scope lock: do not switch tasks; if any planning or task-tracking docs change, keep those changes limited to Task %s.\n", taskID)
 	}
@@ -2476,13 +2492,15 @@ func buildSessionResumeCommand(baseCommand, sessionID string) (string, error) {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		PollInterval:      defaultPollInterval,
-		MainBranch:        defaultMainBranch,
-		BranchPrefix:      defaultBranchPrefix,
-		AgentCommand:      strings.TrimSpace(os.Getenv("SIMUG_AGENT_CMD")),
-		MaxRepairAttempts: defaultMaxRepairAttempts,
-		AllowedUsers:      map[string]struct{}{},
-		AllowedVerbs:      splitCSVSet(defaultAllowedVerbs),
+		PollInterval:       defaultPollInterval,
+		MainBranch:         defaultMainBranch,
+		BranchPrefix:       defaultBranchPrefix,
+		AgentCommand:       strings.TrimSpace(os.Getenv("SIMUG_AGENT_CMD")),
+		MaxRepairAttempts:  defaultMaxRepairAttempts,
+		AllowedUsers:       map[string]struct{}{},
+		AllowedVerbs:       splitCSVSet(defaultAllowedVerbs),
+		GuidanceCandidates: append([]string(nil), defaultPromptGuidanceCandidates...),
+		PlanningCandidates: append([]string(nil), defaultPlanningGuidanceCandidates...),
 	}
 
 	if raw := strings.TrimSpace(os.Getenv("SIMUG_POLL_SECONDS")); raw != "" {
@@ -2517,6 +2535,20 @@ func loadConfig() (config, error) {
 	if raw := strings.TrimSpace(os.Getenv("SIMUG_ALLOWED_COMMAND_VERBS")); raw != "" {
 		cfg.AllowedVerbs = splitCSVSet(raw)
 	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_GUIDANCE_PATHS")); raw != "" {
+		paths, err := parseRelativeCSVPaths(raw)
+		if err != nil {
+			return config{}, fmt.Errorf("invalid SIMUG_GUIDANCE_PATHS: %w", err)
+		}
+		cfg.GuidanceCandidates = mergeStringSlicesUnique(paths, defaultPromptGuidanceCandidates)
+	}
+	if raw := strings.TrimSpace(os.Getenv("SIMUG_PLANNING_PATHS")); raw != "" {
+		paths, err := parseRelativeCSVPaths(raw)
+		if err != nil {
+			return config{}, fmt.Errorf("invalid SIMUG_PLANNING_PATHS: %w", err)
+		}
+		cfg.PlanningCandidates = mergeStringSlicesUnique(paths, defaultPlanningGuidanceCandidates)
+	}
 	if len(cfg.AllowedVerbs) == 0 {
 		return config{}, fmt.Errorf("allowed command verbs set cannot be empty")
 	}
@@ -2529,6 +2561,66 @@ func loadConfig() (config, error) {
 	cfg.BranchPattern = compiled
 
 	return cfg, nil
+}
+
+func (c config) guidanceCandidates() []string {
+	if len(c.GuidanceCandidates) == 0 {
+		return append([]string(nil), defaultPromptGuidanceCandidates...)
+	}
+	return append([]string(nil), c.GuidanceCandidates...)
+}
+
+func (c config) planningCandidates() []string {
+	if len(c.PlanningCandidates) == 0 {
+		return append([]string(nil), defaultPlanningGuidanceCandidates...)
+	}
+	return append([]string(nil), c.PlanningCandidates...)
+}
+
+func parseRelativeCSVPaths(raw string) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	paths := make([]string, 0, len(parts))
+	for _, part := range parts {
+		path := strings.TrimSpace(part)
+		if path == "" {
+			continue
+		}
+		cleaned := filepath.Clean(path)
+		if cleaned == "." {
+			return nil, fmt.Errorf("path %q resolves to repository root", path)
+		}
+		if filepath.IsAbs(cleaned) {
+			return nil, fmt.Errorf("path %q must be repo-relative", path)
+		}
+		parentPrefix := ".." + string(os.PathSeparator)
+		if cleaned == ".." || strings.HasPrefix(cleaned, parentPrefix) {
+			return nil, fmt.Errorf("path %q escapes repository root", path)
+		}
+		paths = append(paths, cleaned)
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no repo-relative paths configured")
+	}
+	return mergeStringSlicesUnique(paths), nil
+}
+
+func mergeStringSlicesUnique(slices ...[]string) []string {
+	var merged []string
+	seen := make(map[string]struct{})
+	for _, slice := range slices {
+		for _, item := range slice {
+			trimmed := strings.TrimSpace(item)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			merged = append(merged, trimmed)
+		}
+	}
+	return merged
 }
 
 func parseAgentCommands(body, author string, allowedUsers, allowedVerbs map[string]struct{}) ([]string, []string) {

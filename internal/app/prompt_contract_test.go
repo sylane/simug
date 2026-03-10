@@ -96,6 +96,30 @@ func TestBuildBootstrapIntentPromptUsesDiscoveredGuidance(t *testing.T) {
 	}
 }
 
+func TestBuildBootstrapIntentPromptUsesConfiguredGuidancePaths(t *testing.T) {
+	tmp := t.TempDir()
+	customDir := filepath.Join(tmp, "meta")
+	if err := os.MkdirAll(customDir, 0o755); err != nil {
+		t.Fatalf("mkdir custom dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(customDir, "BOOTSTRAP.md"), []byte("custom guidance"), 0o644); err != nil {
+		t.Fatalf("write custom guidance: %v", err)
+	}
+
+	o := orchestrator{
+		repoRoot: tmp,
+		cfg: config{
+			MainBranch:         "main",
+			GuidanceCandidates: []string{"meta/BOOTSTRAP.md"},
+		},
+	}
+
+	prompt := o.buildBootstrapIntentPrompt(nil, "", "")
+	if !strings.Contains(prompt, "Evaluate repository guidance to select the next task scope: meta/BOOTSTRAP.md.") {
+		t.Fatalf("missing configured guidance instruction in bootstrap intent prompt:\n%s", prompt)
+	}
+}
+
 func TestBuildBootstrapIntentPromptIncludesPendingTaskTarget(t *testing.T) {
 	o := orchestrator{
 		cfg: config{
@@ -199,6 +223,40 @@ func TestBuildBootstrapExecutionPromptFallsBackWithoutSupportedPlanningStatus(t 
 	prompt := o.buildBootstrapPrompt(intent, "")
 	if !strings.Contains(prompt, "docs/PLANNING.md does not expose supported status markers for Task 7.3") {
 		t.Fatalf("missing unsupported-planning fallback in bootstrap execution prompt:\n%s", prompt)
+	}
+}
+
+func TestBuildBootstrapExecutionPromptUsesConfiguredPlanningPath(t *testing.T) {
+	tmp := t.TempDir()
+	metaDir := filepath.Join(tmp, "meta")
+	if err := os.MkdirAll(metaDir, 0o755); err != nil {
+		t.Fatalf("mkdir meta dir: %v", err)
+	}
+	body := `# Tasks
+- [ ] **[IN_PROGRESS] Task 7.3: bootstrap context abstraction**
+`
+	if err := os.WriteFile(filepath.Join(metaDir, "TASKS.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write planning file: %v", err)
+	}
+
+	o := orchestrator{
+		repoRoot: tmp,
+		cfg: config{
+			MainBranch:         "main",
+			PlanningCandidates: []string{"meta/TASKS.md"},
+		},
+	}
+
+	intent := state.BootstrapIntent{
+		TaskRef:    "Task 7.3",
+		Summary:    "make guidance configurable",
+		BranchSlug: "bootstrap-context-abstraction",
+		BranchName: "agent/20260310-165033-bootstrap-context-abstraction",
+	}
+
+	prompt := o.buildBootstrapPrompt(intent, "")
+	if !strings.Contains(prompt, "planning status changes in meta/TASKS.md for other tasks are forbidden while executing Task 7.3") {
+		t.Fatalf("missing configured planning scope lock in bootstrap execution prompt:\n%s", prompt)
 	}
 }
 

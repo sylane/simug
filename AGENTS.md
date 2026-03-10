@@ -19,6 +19,7 @@ For simug-on-simug development, treat this file and the three docs above as the 
 Bootstrap guidance note:
 - These instructions are specific to `simug` self-hosting.
 - In other repositories, simug must discover guidance files opportunistically (for example `AGENTS.md`, workflow/planning docs, or `README.md`) and fall back safely when those files are missing or use a different format.
+- Repo-specific bootstrap guidance/planning candidates can also be supplied through repo-relative `SIMUG_GUIDANCE_PATHS` / `SIMUG_PLANNING_PATHS` environment configuration when the default filenames do not fit the repository.
 
 ## Role
 

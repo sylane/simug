@@ -330,6 +330,7 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 Every Codex prompt includes:
 
 - Discover repository guidance files opportunistically (for example `AGENTS.md`, `WORKFLOW.md`, `PLANNING.md`, `README.md`) and use them when present.
+- Allow repo-specific guidance/planning discovery candidates through repo-relative environment configuration (`SIMUG_GUIDANCE_PATHS`, `SIMUG_PLANNING_PATHS`) when repositories use different filenames.
 - If no workflow/planning guidance is discovered, fall back to approved intent plus direct repository inspection instead of assuming simug-specific files exist.
 - Commit changes locally when task step is completed.
 - Never push or create PR directly.
