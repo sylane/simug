@@ -350,7 +350,7 @@ Execution note:
   - Scope: replace free-floating `SIMUG:` action parsing with a bounded active-turn coordinator payload that carries a unique turn/session identity, and ignore stale or echoed protocol outside that active envelope.
   - Done when: terminal/action cardinality is derived only from the active-turn payload and echoed/duplicated protocol text cannot create false multi-terminal failures.
 
-- [ ] **Task 7.4c: Execution-turn protocol discipline and gate decoupling**
+- [x] **Task 7.4c: Execution-turn protocol discipline and gate decoupling**
   - Scope: reduce protocol echo risk in write-enabled turns by removing literal terminal examples from execution prompts, and decouple environment-sensitive validation-gate follow-up from the commit-producing execution turn.
   - Done when: a successful implementation turn can finish with one deterministic machine result even if later gate/reporting work needs a separate orchestrator step or follow-up turn.
   - Refinement: build on Task 7.4b bounded envelopes by eliminating write-turn examples that still mirror active action payloads closely enough to be echoed back inside the active turn.
@@ -358,6 +358,7 @@ Execution note:
 - [ ] **Task 7.4d: Verbose progress console and full transcript log**
   - Scope: keep live progress visible in verbose mode with concise structured milestones, while persisting the full timestamped simug<->Codex interaction stream to durable per-attempt log files.
   - Done when: operators can follow high-signal progress live without console spam and reconstruct the full interaction from archived logs without relying on terminal scrollback.
+  - Refinement: treat deferred gate/canary work as a separate post-turn phase in verbose output rather than blending it into the commit-producing execution milestone stream.
 
 - [ ] **Task 7.4e: Protocol/archive forensic hardening and runtime regressions**
   - Scope: guarantee non-empty archived raw/classified output on parser failures, persist the exact protocol lines that drove terminal counts, and add runtime regressions for duplicated terminals, echoed protocol snippets, and transcript archival fidelity.

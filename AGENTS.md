@@ -68,6 +68,7 @@ simug run
 - Add or update tests with behavior changes.
 - Run focused tests during iteration.
 - Run full suite before finalizing.
+- In self-hosted write-enabled turns, keep the commit-producing execution turn separate from environment-sensitive gates (for example `scripts/canary-real-codex-gate.sh`); run those as follow-up validation after the turn completes.
 - Run real-Codex validation gate before finalizing task work:
   - `scripts/canary-real-codex-gate.sh`
 - Do not remove or weaken tests only to make the run pass.

@@ -29,6 +29,8 @@ func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
 
 	prompt := o.buildManagedPRPrompt(pr, nil, false, "")
 	required := []string{
+		"Keep this turn focused on implementation, deterministic local checks, and coordinator output.",
+		"Do NOT run environment-sensitive validation gates in this turn",
 		"Emit machine actions only inside one bounded SIMUG coordinator envelope.",
 		"Emit exactly one coordinator begin envelope and one matching coordinator end envelope for the active turn.",
 		"Emit manager-facing human messages only with prefix SIMUG_MANAGER:",
@@ -37,19 +39,17 @@ func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
 		"Terminal protocol action must be exactly one of done or idle.",
 		"Do NOT push, do NOT create or modify PRs directly.",
 		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
-		"SIMUG_MANAGER: <human-friendly manager message>",
-		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"comment","body":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"reply","comment_id":123,"body":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"issue_update","issue_number":123,"relation":"fixes","comment":"Task implementation covers this issue because ..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"idle","reason":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}`,
+		"Coordinator envelope schema for this managed PR turn:",
+		"- SIMUG_MANAGER: <human-friendly manager message>",
+		"action envelope payload.action may be comment(body), reply(comment_id, body), issue_update(issue_number, relation, comment), done(summary, changes, optional pr_title, optional pr_body), or idle(reason)",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in managed prompt:\n%s", needle, prompt)
 		}
+	}
+	if strings.Contains(prompt, `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>"`) {
+		t.Fatalf("managed prompt should not embed literal coordinator action examples:\n%s", prompt)
 	}
 }
 
@@ -242,16 +242,20 @@ func TestBuildBootstrapExecutionPromptContainsApprovedIntent(t *testing.T) {
 		"Scope lock: do not switch tasks;",
 		"Before terminal done, emit exactly one execution report comment body prefixed with REPORT_JSON:",
 		"Do NOT push. Do NOT create PR.",
+		"This execution turn is commit-producing only; do NOT run environment-sensitive validation gates in this turn",
+		"If later gate or reporting follow-up is still required, finish this turn after the commit, REPORT_JSON payload, and terminal action so follow-up can happen separately.",
 		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
-		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"comment","body":"REPORT_JSON:{\"task_ref\":\"Task 7.2d\",\"summary\":\"...\",\"branch\":\"agent/20260308-120000-task\",\"head\":\"<post-run-head-sha>\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"...","changes":true,"pr_title":"...","pr_body":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}`,
+		"Coordinator envelope schema for this execution turn:",
+		"action envelope payload.action may be comment(body), issue_update(issue_number, relation, comment), done(summary, changes, optional pr_title, optional pr_body), or idle(reason)",
+		"when payload.action is comment and terminal action is done, exactly one comment body must start with REPORT_JSON: and include task_ref, summary, branch, and head from this run",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in bootstrap execution prompt:\n%s", needle, prompt)
 		}
+	}
+	if strings.Contains(prompt, `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>"`) {
+		t.Fatalf("bootstrap execution prompt should not embed literal coordinator action examples:\n%s", prompt)
 	}
 }
 
@@ -363,24 +367,24 @@ func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
 	prompt := o.buildRepairPrompt(expectedBranch, fmt.Errorf("boom"), nil)
 	required := []string{
 		"never push or create/update PR directly",
+		"do NOT run environment-sensitive validation gates in this repair turn",
+		"finish the repair turn once repository consistency is restored and the coordinator envelope is emitted; gate follow-up can happen separately",
 		"emit machine actions only inside one bounded SIMUG coordinator envelope",
 		"use issue_update actions for issue linkage intent; do not comment on issues directly",
 		"use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined",
 		"coordinator ignores SIMUG lines outside the active turn envelope",
 		fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)", expectedBranch, o.cfg.MainBranch),
-		"SIMUG_MANAGER: <human-friendly manager message>",
-		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"comment","body":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"reply","comment_id":123,"body":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"issue_update","issue_number":123,"relation":"impacts","comment":"This work affects this issue because ..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"...","changes":true}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"idle","reason":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}`,
+		"Coordinator envelope schema for this repair turn:",
+		"- SIMUG_MANAGER: <human-friendly manager message>",
+		"action envelope payload.action may be comment(body), reply(comment_id, body), issue_update(issue_number, relation, comment), done(summary, changes), or idle(reason)",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in repair prompt:\n%s", needle, prompt)
 		}
+	}
+	if strings.Contains(prompt, `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>"`) {
+		t.Fatalf("repair prompt should not embed literal coordinator action examples:\n%s", prompt)
 	}
 }
 

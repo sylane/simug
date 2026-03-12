@@ -88,6 +88,7 @@ Required process for Codex during self-hosted development:
 - run baseline/final validations,
 - update `CHANGELOG.md` with final task outcomes,
 - prepare `.git/SIMUG_COMMIT_MSG` and commit with it.
+- keep commit-producing execution turns separate from environment-sensitive validation gates such as `scripts/canary-real-codex-gate.sh`; those gates run as follow-up validation after the turn completes.
 
 ## Mandatory Task Lifecycle
 

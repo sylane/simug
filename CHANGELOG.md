@@ -68,6 +68,7 @@ https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Write-enabled managed-PR/bootstrap/repair prompts now describe the bounded coordinator envelope as abstract schema instead of embedding literal terminal payload examples, and they explicitly defer environment-sensitive gates like `scripts/canary-real-codex-gate.sh` out of the commit-producing turn.
 - Coordinator protocol ingestion now requires bounded active-turn `SIMUG:` begin/action/end envelopes keyed by turn identity (and optional resumed session identity), so stale or echoed protocol outside the active envelope is ignored instead of contributing false terminal counts.
 - Refined the Phase 7 backlog after `Task 7.4` to queue bounded coordinator protocol work, execution-turn/gate decoupling, reduced-noise verbose progress, full transcript logging, and stronger protocol forensics ahead of the generic maintainability tasks.
 - Modularized the large orchestration loop by extracting managed-PR flow, no-PR bootstrap flow, agent validation, and GitHub mutation/state-transition helpers from `internal/app/run.go` into focused `internal/app/orchestration_*.go` files, with added state-transition unit coverage.

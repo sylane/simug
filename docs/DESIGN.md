@@ -411,6 +411,7 @@ This matrix defines how simug reacts to Codex protocol output by mode.
     - Allowed non-terminal actions: `comment`, `issue_update`.
     - Required terminal: exactly one `done` or `idle`, inside the active coordinator envelope.
     - Orchestrator reaction: validate branch/commit/clean tree, planning scope lock, issue-update payloads, and exactly one valid `REPORT_JSON` comment (for `done`); push/create PR on valid `done + changes=true`; clear intent on completion/idle.
+    - Environment-sensitive validation gates (for example real-Codex canaries) are follow-up validation outside the single commit-producing execution turn, not part of terminal-action acceptance for that turn.
 - Any mode with invalid action set or cardinality:
   - Orchestrator reaction: reject run, emit repair prompt, retry within bounded limit, then fail-closed.
 

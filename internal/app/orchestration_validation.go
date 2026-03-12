@@ -760,6 +760,8 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("- maintain task records: history/, CHANGELOG.md, and .git/SIMUG_COMMIT_MSG\n")
 	b.WriteString("- use issue_update actions for issue linkage intent; do not comment on issues directly\n")
 	b.WriteString("- never push or create/update PR directly\n")
+	b.WriteString("- do NOT run environment-sensitive validation gates in this repair turn (for example scripts/canary-real-codex-gate.sh, self-host canaries, or network-dependent release checks)\n")
+	b.WriteString("- finish the repair turn once repository consistency is restored and the coordinator envelope is emitted; gate follow-up can happen separately\n")
 	b.WriteString("- emit machine actions only inside one bounded SIMUG coordinator envelope\n")
 	b.WriteString("- emit exactly one coordinator begin envelope and one matching coordinator end envelope for the active turn\n")
 	b.WriteString("- each coordinator action envelope must use event=action and carry the action JSON in payload\n")
@@ -778,14 +780,10 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 		}
 		b.WriteString("- when terminal action is done, emit one REPORT_JSON comment with task_ref, summary, branch, and head from this run\n")
 	}
-	b.WriteString("Protocol JSON lines:\n")
-	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}` + "\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"comment","body":"..."}}` + "\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"reply","comment_id":123,"body":"..."}}` + "\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"issue_update","issue_number":123,"relation":"impacts","comment":"This work affects this issue because ..."}}` + "\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"...","changes":true}}` + "\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"idle","reason":"..."}}` + "\n")
-	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}` + "\n")
+	b.WriteString("Coordinator envelope schema for this repair turn:\n")
+	b.WriteString("- SIMUG_MANAGER: <human-friendly manager message>\n")
+	b.WriteString("- begin envelope: coordinator event=begin for the active turn_id (and session_id when provided)\n")
+	b.WriteString("- action envelope payload.action may be comment(body), reply(comment_id, body), issue_update(issue_number, relation, comment), done(summary, changes), or idle(reason)\n")
+	b.WriteString("- end envelope: coordinator event=end matching the same active turn identity\n")
 	return b.String()
 }
