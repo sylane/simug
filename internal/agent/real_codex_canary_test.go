@@ -37,47 +37,58 @@ func TestRealCodexProtocolConformanceCanary(t *testing.T) {
 
 	scenarios := []struct {
 		name        string
+		turnID      string
 		prompt      string
 		expectError bool
 	}{
 		{
-			name: "managed-pr",
+			name:   "managed-pr",
+			turnID: "canary-managed-pr",
 			prompt: strings.Join([]string{
 				"You are a protocol conformance canary.",
-				"Respond with exactly two SIMUG lines and no additional text.",
-				`Line 1: SIMUG: {"action":"comment","body":"canary managed-pr comment"}`,
-				`Line 2: SIMUG: {"action":"done","summary":"canary managed-pr done","changes":false}`,
+				"Respond with one bounded coordinator envelope and no additional text.",
+				`Line 1: SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"canary-managed-pr"}`,
+				`Line 2: SIMUG: {"envelope":"coordinator","event":"action","turn_id":"canary-managed-pr","payload":{"action":"comment","body":"canary managed-pr comment"}}`,
+				`Line 3: SIMUG: {"envelope":"coordinator","event":"action","turn_id":"canary-managed-pr","payload":{"action":"done","summary":"canary managed-pr done","changes":false}}`,
+				`Line 4: SIMUG: {"envelope":"coordinator","event":"end","turn_id":"canary-managed-pr"}`,
 			}, "\n"),
 		},
 		{
-			name: "issue-triage",
+			name:   "issue-triage",
+			turnID: "canary-issue-triage",
 			prompt: strings.Join([]string{
 				"You are a protocol conformance canary.",
-				"Respond with exactly two SIMUG lines and no additional text.",
-				`Line 1: SIMUG: {"action":"issue_report","issue_number":7,"relevant":true,"analysis":"canary triage","needs_task":false}`,
-				`Line 2: SIMUG: {"action":"done","summary":"canary triage done","changes":false}`,
+				"Respond with one bounded coordinator envelope and no additional text.",
+				`Line 1: SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"canary-issue-triage"}`,
+				`Line 2: SIMUG: {"envelope":"coordinator","event":"action","turn_id":"canary-issue-triage","payload":{"action":"issue_report","issue_number":7,"relevant":true,"analysis":"canary triage","needs_task":false}}`,
+				`Line 3: SIMUG: {"envelope":"coordinator","event":"action","turn_id":"canary-issue-triage","payload":{"action":"done","summary":"canary triage done","changes":false}}`,
+				`Line 4: SIMUG: {"envelope":"coordinator","event":"end","turn_id":"canary-issue-triage"}`,
 			}, "\n"),
 		},
 		{
-			name: "task-bootstrap",
+			name:   "task-bootstrap",
+			turnID: "canary-task-bootstrap",
 			prompt: strings.Join([]string{
 				"You are a protocol conformance canary.",
-				"Respond with exactly one SIMUG line and no additional text.",
-				`SIMUG: {"action":"idle","reason":"canary bootstrap idle"}`,
+				"Respond with one bounded coordinator envelope and no additional text.",
+				`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"canary-task-bootstrap"}`,
+				`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"canary-task-bootstrap","payload":{"action":"idle","reason":"canary bootstrap idle"}}`,
+				`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"canary-task-bootstrap"}`,
 			}, "\n"),
 		},
 		{
-			name: "malformed-protocol-output",
+			name:   "malformed-protocol-output",
+			turnID: "canary-malformed",
 			prompt: strings.Join([]string{
 				"You are a protocol conformance canary.",
-				"Respond with exactly one malformed SIMUG line and no terminal action.",
+				"Respond with a bounded coordinator begin line, then one malformed SIMUG line, then the matching coordinator end line.",
+				`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"canary-malformed"}`,
 				`SIMUG: {bad-json}`,
+				`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"canary-malformed"}`,
 			}, "\n"),
 			expectError: true,
 		},
 	}
-
-	runner := Runner{Command: cmd}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -90,6 +101,7 @@ func TestRealCodexProtocolConformanceCanary(t *testing.T) {
 			t.Fatalf("write prompt artifact: %v", err)
 		}
 
+		runner := Runner{Command: cmd, Turn: CoordinatorTurn{TurnID: scenario.turnID}}
 		result, err := runner.Run(ctx, scenario.prompt)
 		rawOutput := result.RawOutput
 		if err != nil {

@@ -65,7 +65,7 @@ func (m *sequencedCommandRunner) Run(_ context.Context, _ string, name string, a
 }
 
 func TestRunFailsWhenMultipleAuthoredOpenPRsExist(t *testing.T) {
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"noop"}`))
 	tmp := t.TempDir()
 	runner := mockCommandRunner{responses: map[string]string{
 		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
@@ -95,7 +95,7 @@ func TestRunFailsWhenMultipleAuthoredOpenPRsExist(t *testing.T) {
 }
 
 func TestRunFailsOnCheckoutMismatchForManagedPR(t *testing.T) {
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"noop"}`))
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
 	runner := mockCommandRunner{responses: map[string]string{
@@ -147,7 +147,7 @@ func TestAcquireLockRecoversStaleLock(t *testing.T) {
 
 func TestRunOneManagedTickSuccessWithMockedCommands(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -198,7 +198,11 @@ func TestRunOneManagedTickSuccessWithMockedCommands(t *testing.T) {
 
 func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(
+		`{"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}`,
+		`{"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}`,
+		`{"action":"done","summary":"ok","changes":false}`,
+	))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -284,7 +288,7 @@ func TestRunOneManagedTickAcceptsIssueUpdateIntent(t *testing.T) {
 
 func TestRunManagedTickMarksIssueUpdatePostedWhenMarkerAlreadyExists(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -377,7 +381,7 @@ func TestRunManagedTickMarksIssueUpdatePostedWhenMarkerAlreadyExists(t *testing.
 
 func TestRunManagedTickSkipsIssueUpdateOutsideAuthorScope(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -459,7 +463,7 @@ func TestRunManagedTickSkipsIssueUpdateOutsideAuthorScope(t *testing.T) {
 
 func TestRunNoOpenPRFinalizesMergedPRIssueLinks(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -579,7 +583,7 @@ func TestRunNoOpenPRFinalizesMergedPRIssueLinks(t *testing.T) {
 
 func TestRunNoOpenPRMergeFinalizationMarkerSkipsDuplicateCommentButStillCloses(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -668,7 +672,7 @@ func TestRunNoOpenPRMergeFinalizationMarkerSkipsDuplicateCommentButStillCloses(t
 
 func TestRunNoOpenPRMergeFinalizationSkipsOutOfScopeIssue(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -746,7 +750,10 @@ func TestRunNoOpenPRMergeFinalizationSkipsOutOfScopeIssue(t *testing.T) {
 func TestRunManagedTickRejectsMalformedIssueUpdatePayload(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"issue_update","issue_number":7,"relation":"bogus","comment":"bad relation"}\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(
+		`{"action":"issue_update","issue_number":7,"relation":"bogus","comment":"bad relation"}`,
+		`{"action":"done","summary":"ok","changes":false}`,
+	))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -807,7 +814,10 @@ func TestRunOnceIssueLifecyclePersistsAcrossRestartUntilMergeFinalization(t *tes
 	updateBody := buildIssueUpdateCommentBody("example/simug", trackedLink, "")
 	finalizationBody := buildIssueFinalizationCommentBody("example/simug", trackedLink)
 
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(
+		`{"action":"issue_update","issue_number":7,"relation":"fixes","comment":"Implemented via this PR"}`,
+		`{"action":"done","summary":"ok","changes":false}`,
+	))
 	firstRunner := mockCommandRunner{responses: map[string]string{
 		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
 		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
@@ -862,7 +872,7 @@ func TestRunOnceIssueLifecyclePersistsAcrossRestartUntilMergeFinalization(t *tes
 		t.Fatalf("unexpected issue link state after first tick: %#v", afterFirst.IssueLinks)
 	}
 
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 	secondRunner := mockCommandRunner{responses: map[string]string{
 		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
 		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
@@ -916,7 +926,7 @@ func TestRunOnceIssueLifecyclePersistsAcrossRestartUntilMergeFinalization(t *tes
 
 func TestRunOnceMergedPRChecksOutMainPullsAndDeletesMergedLocalBranch(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -998,7 +1008,7 @@ func TestRunOnceMergedPRChecksOutMainPullsAndDeletesMergedLocalBranch(t *testing
 
 func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -1084,7 +1094,7 @@ func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
 
 func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -1159,7 +1169,7 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read output archive: %v", err)
 	}
-	if !strings.Contains(string(outputData), `SIMUG: {"action":"done","summary":"ok","changes":false}`) {
+	if !strings.Contains(string(outputData), `"payload":{"action":"done","summary":"ok","changes":false}`) {
 		t.Fatalf("unexpected output archive content: %s", string(outputData))
 	}
 
@@ -1195,7 +1205,7 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 
 func TestRunRoutesManagerPrefixAndQuarantinesUnprefixedOutput(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG_MANAGER: hello manager\nfree text line\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedManagerAndPayloadCommand("hello manager", `{"action":"done","summary":"ok","changes":false}`)+`; printf 'free text line\n'`)
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -1268,7 +1278,7 @@ func TestRunRoutesManagerPrefixAndQuarantinesUnprefixedOutput(t *testing.T) {
 func TestRunPersistsInFlightAttemptJournalOnAgentFailure(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {not-json}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", `turn="$SIMUG_PROTOCOL_TURN_ID"; printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"; printf 'SIMUG: {not-json}\n'; printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"`)
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -1338,7 +1348,7 @@ func TestRunPersistsInFlightAttemptJournalOnAgentFailure(t *testing.T) {
 
 func TestRunClearsInFlightAttemptJournalAfterSuccessfulAttempt(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))
 
 	tmp := t.TempDir()
 	branch := "agent/20260307-120000-alpha-task"
@@ -1386,7 +1396,7 @@ func TestRunClearsInFlightAttemptJournalAfterSuccessfulAttempt(t *testing.T) {
 
 func TestRunNoOpenPRIdlePersistsIssueTriageMode(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	runner := mockCommandRunner{responses: map[string]string{
@@ -1439,7 +1449,7 @@ func TestRunNoOpenPRIdlePersistsIssueTriageMode(t *testing.T) {
 
 func TestRunOnceNoOpenPRIdleCompletesSingleTick(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	runner := mockCommandRunner{responses: map[string]string{
@@ -1481,7 +1491,7 @@ func TestRunOnceNoOpenPRIdleCompletesSingleTick(t *testing.T) {
 
 func TestRunOnceRecoversInFlightAttemptWithReplayAction(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -1559,7 +1569,7 @@ func TestRunOnceRecoversInFlightAttemptWithReplayAction(t *testing.T) {
 
 func TestRunOnceRecoversInFlightAttemptWithResumeAction(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -1638,7 +1648,7 @@ func TestRunOnceRecoversInFlightAttemptWithResumeAction(t *testing.T) {
 
 func TestRunOnceRecoversInFlightAttemptWithRepairAction(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -1716,7 +1726,7 @@ func TestRunOnceRecoversInFlightAttemptWithRepairAction(t *testing.T) {
 }
 
 func TestRunRecoveryAbortOnDirtyTree(t *testing.T) {
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"noop"}`))
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
 		t.Fatalf("mkdir runtime dir: %v", err)
@@ -1787,7 +1797,7 @@ func TestRunRecoveryAbortOnDirtyTree(t *testing.T) {
 }
 
 func TestRunRecoveryAbortWhenFailedBootstrapAttemptAdvancedHead(t *testing.T) {
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"noop"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"noop"}`))
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
 		t.Fatalf("mkdir runtime dir: %v", err)
@@ -1874,7 +1884,7 @@ func TestRunRecoveryAbortWhenFailedBootstrapAttemptAdvancedHead(t *testing.T) {
 
 func TestRunNoOpenPRFailsOnFetchOriginError(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	runner := mockCommandRunner{
@@ -1906,7 +1916,7 @@ func TestRunNoOpenPRFailsOnFetchOriginError(t *testing.T) {
 
 func TestRunMergeFinalizationFailsWhenCloseIssueFails(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -1977,7 +1987,10 @@ func TestRunMergeFinalizationFailsWhenCloseIssueFails(t *testing.T) {
 
 func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Legacy pending task hint: prioritize Task 5.4a."; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 5.4a\\\",\\\"summary\\\":\\\"bootstrap pending task\\\",\\\"branch_slug\\\":\\\"task-5-4a\\\",\\\"pr_title\\\":\\\"feat: task 5.4a\\\",\\\"pr_body\\\":\\\"Implements Task 5.4a\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"missing pending task target"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Legacy pending task hint: prioritize Task 5.4a."; then `+envelopedAgentCommand(
+		`{"action":"comment","body":"INTENT_JSON:{\"task_ref\":\"Task 5.4a\",\"summary\":\"bootstrap pending task\",\"branch_slug\":\"task-5-4a\",\"pr_title\":\"feat: task 5.4a\",\"pr_body\":\"Implements Task 5.4a\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}`,
+		`{"action":"done","summary":"intent prepared","changes":false}`,
+	)+`; else `+envelopedAgentCommand(`{"action":"idle","reason":"missing pending task target"}`)+`; fi`)
 
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
@@ -2053,7 +2066,13 @@ func TestRunNoOpenPRSkipsIssueTriageWhenPendingTaskExists(t *testing.T) {
 
 func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; elif printf '%s' "$input" | grep -q "Issue-derived intake context is active: issue #4."; then printf 'SIMUG: {"action":"comment","body":"INTENT_JSON:{\\\"task_ref\\\":\\\"Task 7.2a\\\",\\\"summary\\\":\\\"bootstrap after triage\\\",\\\"branch_slug\\\":\\\"bootstrap-after-triage\\\",\\\"pr_title\\\":\\\"feat: bootstrap after triage\\\",\\\"pr_body\\\":\\\"Implements planned task\\\",\\\"checks\\\":[\\\"GOCACHE=/tmp/go-build go test ./...\\\"]}"}\nSIMUG: {"action":"done","summary":"intent prepared","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then `+envelopedAgentCommand(
+		`{"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}`,
+		`{"action":"done","summary":"triaged","changes":false}`,
+	)+`; elif printf '%s' "$input" | grep -q "Issue-derived intake context is active: issue #4."; then `+envelopedAgentCommand(
+		`{"action":"comment","body":"INTENT_JSON:{\"task_ref\":\"Task 7.2a\",\"summary\":\"bootstrap after triage\",\"branch_slug\":\"bootstrap-after-triage\",\"pr_title\":\"feat: bootstrap after triage\",\"pr_body\":\"Implements planned task\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}`,
+		`{"action":"done","summary":"intent prepared","changes":false}`,
+	)+`; else `+envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`)+`; fi`)
 
 	tmp := t.TempDir()
 	report := agent.Action{
@@ -2125,7 +2144,10 @@ func TestRunNoOpenPRSelectsOldestAuthoredIssueDeterministically(t *testing.T) {
 func TestRunNoOpenPRNeedsTaskDoesNotRequirePlanningFile(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then `+envelopedAgentCommand(
+		`{"action":"issue_report","issue_number":4,"relevant":true,"analysis":"needs task","needs_task":true,"task_title":"x","task_body":"y"}`,
+		`{"action":"done","summary":"triaged","changes":false}`,
+	)+`; else `+envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`)+`; fi`)
 
 	tmp := t.TempDir()
 	report := agent.Action{
@@ -2184,7 +2206,7 @@ func TestRunNoOpenPRNeedsTaskDoesNotRequirePlanningFile(t *testing.T) {
 func TestRunNoOpenPRIssueTriageRejectsMissingIssueReport(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
-	t.Setenv("SIMUG_AGENT_CMD", `printf 'SIMUG: {"action":"done","summary":"triaged","changes":false}\n'`)
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"triaged","changes":false}`))
 
 	tmp := t.TempDir()
 	runner := mockCommandRunner{responses: map[string]string{
@@ -2221,7 +2243,10 @@ func TestRunNoOpenPRIssueTriageRejectsMissingIssueReport(t *testing.T) {
 
 func TestRunNoOpenPRIssueTriageSkipsDuplicateMarkerComment(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":false,"analysis":"already handled","needs_task":false}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then `+envelopedAgentCommand(
+		`{"action":"issue_report","issue_number":4,"relevant":false,"analysis":"already handled","needs_task":false}`,
+		`{"action":"done","summary":"triaged","changes":false}`,
+	)+`; else `+envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`)+`; fi`)
 
 	tmp := t.TempDir()
 	report := agent.Action{
@@ -2264,7 +2289,10 @@ func TestRunNoOpenPRIssueTriageSkipsDuplicateMarkerComment(t *testing.T) {
 
 func TestRunNoOpenPRIssueTriageIgnoresMarkerFromOtherAuthor(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
-	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then printf 'SIMUG: {"action":"issue_report","issue_number":4,"relevant":false,"analysis":"still comment","needs_task":false}\nSIMUG: {"action":"done","summary":"triaged","changes":false}\n'; else printf 'SIMUG: {"action":"idle","reason":"no task available"}\n'; fi`)
+	t.Setenv("SIMUG_AGENT_CMD", `input="$(cat)"; if printf '%s' "$input" | grep -q "Selected issue: #"; then `+envelopedAgentCommand(
+		`{"action":"issue_report","issue_number":4,"relevant":false,"analysis":"still comment","needs_task":false}`,
+		`{"action":"done","summary":"triaged","changes":false}`,
+	)+`; else `+envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`)+`; fi`)
 
 	tmp := t.TempDir()
 	report := agent.Action{

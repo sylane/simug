@@ -346,13 +346,14 @@ Execution note:
   - Scope: add planning follow-up items for bounded coordinator protocol envelopes, execution-turn protocol discipline, reduced-noise verbose progress, and full durable simug<->Codex transcript logging.
   - Done when: the next protocol/logging reliability tasks are queued immediately after Task 7.4 with dependency notes reflecting the latest multi-terminal and missing-transcript investigation.
 
-- [ ] **Task 7.4b: Bounded coordinator protocol envelope and turn identity**
+- [x] **Task 7.4b: Bounded coordinator protocol envelope and turn identity**
   - Scope: replace free-floating `SIMUG:` action parsing with a bounded active-turn coordinator payload that carries a unique turn/session identity, and ignore stale or echoed protocol outside that active envelope.
   - Done when: terminal/action cardinality is derived only from the active-turn payload and echoed/duplicated protocol text cannot create false multi-terminal failures.
 
 - [ ] **Task 7.4c: Execution-turn protocol discipline and gate decoupling**
   - Scope: reduce protocol echo risk in write-enabled turns by removing literal terminal examples from execution prompts, and decouple environment-sensitive validation-gate follow-up from the commit-producing execution turn.
   - Done when: a successful implementation turn can finish with one deterministic machine result even if later gate/reporting work needs a separate orchestrator step or follow-up turn.
+  - Refinement: build on Task 7.4b bounded envelopes by eliminating write-turn examples that still mirror active action payloads closely enough to be echoed back inside the active turn.
 
 - [ ] **Task 7.4d: Verbose progress console and full transcript log**
   - Scope: keep live progress visible in verbose mode with concise structured milestones, while persisting the full timestamped simug<->Codex interaction stream to durable per-attempt log files.
@@ -361,6 +362,7 @@ Execution note:
 - [ ] **Task 7.4e: Protocol/archive forensic hardening and runtime regressions**
   - Scope: guarantee non-empty archived raw/classified output on parser failures, persist the exact protocol lines that drove terminal counts, and add runtime regressions for duplicated terminals, echoed protocol snippets, and transcript archival fidelity.
   - Done when: protocol failures always retain exact offending evidence and real-runtime/canary coverage reproduces multi-terminal classes deterministically.
+  - Refinement: archive the accepted active-turn envelope identity plus ignored out-of-envelope `SIMUG:` lines separately so 7.4e can distinguish stale echoes from active payload failures.
 
 - [ ] **Task 7.5: Single-source prompt contract**
   - Scope: centralize protocol instructions/examples so runtime prompt builders and prompt tests use shared constants/renderers.

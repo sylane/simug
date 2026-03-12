@@ -228,8 +228,10 @@ A task is DONE only if all are true:
 ## Protocol Discipline
 
 - Codex messages consumed by orchestrator must be emitted as:
-  - `SIMUG: {json}`
-- Exactly one terminal action (`done` or `idle`) is required.
+  - `SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<turn-id>"...}`
+  - `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<turn-id>"...,"payload":{...}}`
+  - `SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<turn-id>"...}`
+- Exactly one terminal action (`done` or `idle`) is required inside the active coordinator envelope.
 - Orchestrator must reject malformed or unknown protocol actions.
 
 ## Security Discipline

@@ -56,9 +56,8 @@ func TestRealCodexRepairInteractionCanary(t *testing.T) {
 
 	prompt := strings.Join([]string{
 		"You are a real Codex repair canary.",
-		"If this prompt contains 'Violation:' output exactly:",
-		`SIMUG: {"action":"done","summary":"repair canary ok","changes":false}`,
-		"Otherwise output exactly:",
+		"If this prompt contains 'Violation:' output exactly one bounded coordinator envelope ending in a done action with summary 'repair canary ok' and changes=false.",
+		"Otherwise output exactly one malformed SIMUG line and no valid coordinator envelope.",
 		`MALFORMED: {bad-json}`,
 		"No extra text.",
 	}, "\n")

@@ -33,7 +33,7 @@ func TestParseRoutedOutputRoutesManagerAndQuarantinesUnprefixed(t *testing.T) {
 		"SIMUG_MANAGER: Heads up",
 		"random narrative line",
 		`SIMUG: {"action":"done","summary":"ok","changes":false}`,
-	}, "\n"))
+	}, "\n"), CoordinatorTurn{})
 	if err != nil {
 		t.Fatalf("parseRoutedOutput returned error: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestParseRoutedOutputRejectsManagerPrefixAbuseSpacing(t *testing.T) {
 	out, err := parseRoutedOutput(strings.Join([]string{
 		"SIMUG_MANAGER : spoof with spacing",
 		`SIMUG: {"action":"done","summary":"ok","changes":false}`,
-	}, "\n"))
+	}, "\n"), CoordinatorTurn{})
 	if err != nil {
 		t.Fatalf("parseRoutedOutput returned error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestParseRoutedOutputIgnoresPromptTemplateProtocolLines(t *testing.T) {
 	out, err := parseRoutedOutput(strings.Join([]string{
 		`SIMUG: {"action":"done","summary":"...","changes":true,"pr_title":"optional","pr_body":"optional"}`,
 		`SIMUG: {"action":"done","summary":"real result","changes":false}`,
-	}, "\n"))
+	}, "\n"), CoordinatorTurn{})
 	if err != nil {
 		t.Fatalf("parseRoutedOutput returned error: %v", err)
 	}
@@ -78,6 +78,46 @@ func TestParseRoutedOutputIgnoresPromptTemplateProtocolLines(t *testing.T) {
 	}
 	if out.Actions[0].Summary != "real result" {
 		t.Fatalf("unexpected action summary: %#v", out.Actions[0])
+	}
+}
+
+func TestParseRoutedOutputUsesOnlyMatchingActiveTurnEnvelope(t *testing.T) {
+	turn := CoordinatorTurn{TurnID: "turn-123"}
+	out, err := parseRoutedOutput(strings.Join([]string{
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"stale-turn"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"stale-turn","payload":{"action":"done","summary":"stale","changes":false}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"stale-turn"}`,
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"turn-123","payload":{"action":"comment","body":"hi"}}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"turn-123","payload":{"action":"done","summary":"ok","changes":false}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"turn-123","payload":{"action":"idle","reason":"echo"}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"turn-123"}`,
+	}, "\n"), turn)
+	if err != nil {
+		t.Fatalf("parseRoutedOutput returned error: %v", err)
+	}
+	if len(out.Actions) != 2 {
+		t.Fatalf("actions=%d, want 2", len(out.Actions))
+	}
+	if out.Actions[1].Type != ActionDone || out.Actions[1].Summary != "ok" {
+		t.Fatalf("unexpected actions: %#v", out.Actions)
+	}
+}
+
+func TestParseRoutedOutputRejectsMalformedActiveTurnAction(t *testing.T) {
+	turn := CoordinatorTurn{TurnID: "turn-123"}
+	_, err := parseRoutedOutput(strings.Join([]string{
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"turn-123","payload":{bad-json}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"turn-123"}`,
+	}, "\n"), turn)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "parse active coordinator line") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

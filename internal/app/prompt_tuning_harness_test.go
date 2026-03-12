@@ -59,7 +59,7 @@ func TestPromptTuningHarnessRecoversFromProtocolFailure(t *testing.T) {
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
 			MaxRepairAttempts: 1,
 		},
-		runner:  agent.Runner{Command: `input="$(cat)"; if printf '%s' "$input" | grep -q "Violation:"; then printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'; else printf 'SIMUG: {bad-json}\n'; fi`},
+		runner:  agent.Runner{Command: `input="$(cat)"; turn="$SIMUG_PROTOCOL_TURN_ID"; if printf '%s' "$input" | grep -q "Violation:"; then ` + envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`) + `; else printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"; printf 'SIMUG: {bad-json}\n'; printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"; fi`},
 		runID:   "run-harness",
 		tickSeq: 1,
 	}
@@ -105,7 +105,7 @@ func TestPromptTuningHarnessRecoversFromValidationFailure(t *testing.T) {
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
 			MaxRepairAttempts: 1,
 		},
-		runner:  agent.Runner{Command: `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\n'`},
+		runner:  agent.Runner{Command: envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`)},
 		runID:   "run-harness",
 		tickSeq: 1,
 	}
@@ -145,7 +145,7 @@ func TestPromptTuningHarnessFailsAfterBoundedProtocolRetries(t *testing.T) {
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
 			MaxRepairAttempts: 1,
 		},
-		runner:  agent.Runner{Command: `printf 'SIMUG: {bad-json}\n'`},
+		runner:  agent.Runner{Command: `turn="$SIMUG_PROTOCOL_TURN_ID"; printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"; printf 'SIMUG: {bad-json}\n'; printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"`},
 		runID:   "run-harness",
 		tickSeq: 1,
 	}
@@ -183,7 +183,7 @@ func TestRunAgentWithValidationFailsClosedWhenBootstrapProtocolFailureAdvancedHe
 			BranchPattern:     regexp.MustCompile("^" + regexp.QuoteMeta(expectedBranch) + "$"),
 			MaxRepairAttempts: 1,
 		},
-		runner:  agent.Runner{Command: `printf 'SIMUG: {bad-json}\n'`},
+		runner:  agent.Runner{Command: `turn="$SIMUG_PROTOCOL_TURN_ID"; printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"; printf 'SIMUG: {bad-json}\n'; printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"`},
 		runID:   "run-harness",
 		tickSeq: 1,
 	}

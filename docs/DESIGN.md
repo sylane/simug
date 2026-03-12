@@ -350,9 +350,11 @@ Orchestration control boundary:
 
 ### 8.3 Protocol grammar (stdout line protocol)
 
-Coordinator/machine channel uses JSON lines:
+Coordinator/machine channel uses bounded JSON envelope lines:
 
-`SIMUG: {JSON}`
+- `SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<turn-id>"[, "session_id":"<session-id>"]}`
+- `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<turn-id>"[, "session_id":"<session-id>"],"payload":{...action json...}}`
+- `SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<turn-id>"[, "session_id":"<session-id>"]}`
 
 Manager/human channel uses plain-text lines:
 
@@ -378,10 +380,11 @@ Supported actions:
 
 Rules:
 
-- Exactly one terminal action (`done` or `idle`) must be emitted.
-- Non-terminal actions may appear before terminal action.
-- If raw runtime output repeats an identical full protocol sequence (for example transcript echo from `codex exec`), orchestrator collapses duplicates to the final identical sequence.
-- If prompt-template protocol example sequences are echoed alongside a distinct non-template sequence, orchestrator filters template sequences before terminal-action validation.
+- Exactly one active-turn `begin` envelope and one matching `end` envelope are required when coordinator provides a bounded turn id.
+- Exactly one terminal action (`done` or `idle`) must be emitted inside the active-turn envelope payloads.
+- Non-terminal actions may appear before terminal action inside the active-turn envelope.
+- Only `payload` actions inside the active matching turn/session envelope contribute to action and terminal cardinality; stale, echoed, duplicated, or mismatched `SIMUG:` lines outside that envelope are ignored.
+- When coordinator provides a non-empty `session_id`, every active-turn envelope line must carry the same `session_id`.
 - In `issue_triage` mode, exactly one `issue_report` must be emitted before terminal action.
 - Every manager-facing message must use `SIMUG_MANAGER:` prefix.
 - Unprefixed free text is treated as diagnostic noise, not routed to manager.
@@ -393,20 +396,20 @@ This matrix defines how simug reacts to Codex protocol output by mode.
 
 - `managed_pr`:
   - Allowed non-terminal actions: `comment`, `reply`, `issue_update`.
-  - Required terminal: exactly one `done` or `idle`.
+  - Required terminal: exactly one `done` or `idle` inside the active coordinator envelope.
   - Orchestrator reaction: validate state and issue-update payloads; post PR comments/replies; record issue linkage intent for orchestrator-owned issue handling; push if branch advanced.
 - `issue_triage`:
   - Allowed non-terminal actions: exactly one `issue_report`.
-  - Required terminal: exactly one `done` or `idle` after `issue_report`.
+  - Required terminal: exactly one `done` or `idle` after `issue_report`, inside the active coordinator envelope.
   - Orchestrator reaction: validate report fields/mode constraints; post triage comment; transition to bootstrap intent.
 - `task_bootstrap`:
   - Intent stage (no approved `bootstrap_intent`):
     - Allowed non-terminal actions: exactly one `comment` carrying `INTENT_JSON:{...}`.
-    - Required terminal: `done` with `changes=false` or `idle`.
+    - Required terminal: `done` with `changes=false` or `idle`, inside the active coordinator envelope.
     - Orchestrator reaction: validate no branch/commit movement, parse/validate intent, persist `bootstrap_intent`, do not push/create PR.
   - Execution stage (approved `bootstrap_intent` exists):
     - Allowed non-terminal actions: `comment`, `issue_update`.
-    - Required terminal: exactly one `done` or `idle`.
+    - Required terminal: exactly one `done` or `idle`, inside the active coordinator envelope.
     - Orchestrator reaction: validate branch/commit/clean tree, planning scope lock, issue-update payloads, and exactly one valid `REPORT_JSON` comment (for `done`); push/create PR on valid `done + changes=true`; clear intent on completion/idle.
 - Any mode with invalid action set or cardinality:
   - Orchestrator reaction: reject run, emit repair prompt, retry within bounded limit, then fail-closed.

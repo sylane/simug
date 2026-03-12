@@ -84,7 +84,9 @@ func (o *orchestrator) runAgentWithValidation(ctx context.Context, prompt, expec
 func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, options agentRunOptions) (agent.Result, string, error) {
 	currentPrompt := options.Prompt
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
-		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, options.ExpectedBranch, options.BeforeHead, currentPrompt); err != nil {
+		turn := newCoordinatorTurn(o.runID, o.tickSeq, attempt+1, options.SessionID)
+		promptForRun := appendCoordinatorTurnPrompt(currentPrompt, turn)
+		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, options.ExpectedBranch, options.BeforeHead, promptForRun); err != nil {
 			return agent.Result{}, "", err
 		}
 
@@ -96,6 +98,8 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			"expected_branch":     options.ExpectedBranch,
 			"require_commit_done": options.RequireCommitForDone,
 			"allow_idle_on_main":  options.AllowIdleOnMain,
+			"protocol_turn_id":    turn.TurnID,
+			"protocol_session_id": turn.SessionID,
 			"session_id":          strings.TrimSpace(options.SessionID),
 		})
 
@@ -107,12 +111,13 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			}
 			runner.Command = resumeCommand
 		}
+		runner.Turn = turn
 		if o.verboseConsole {
-			o.emitVerbosePrompt(attempt+1, o.cfg.MaxRepairAttempts+1, currentPrompt, options.SessionID)
+			o.emitVerbosePrompt(attempt+1, o.cfg.MaxRepairAttempts+1, promptForRun, options.SessionID)
 			runner.OnLine = o.emitVerboseAgentLine
 		}
 
-		result, err := runner.Run(ctx, currentPrompt)
+		result, err := runner.Run(ctx, promptForRun)
 		if err != nil {
 			rawOutput := agent.RawOutputFromError(err)
 			afterHead := ""
@@ -133,7 +138,8 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 				options.ExpectedBranch,
 				options.BeforeHead,
 				afterHead,
-				currentPrompt,
+				turn,
+				promptForRun,
 				rawOutput,
 				"",
 				false,
@@ -149,6 +155,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			} else {
 				o.logEvent("agent_archive", "archived codex attempt artifacts", map[string]any{
 					"attempt":       attempt + 1,
+					"protocol_turn": turn.TurnID,
 					"metadata_path": paths.MetadataPath,
 					"prompt_path":   paths.PromptPath,
 					"output_path":   paths.OutputPath,
@@ -159,7 +166,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 				"attempt":      attempt + 1,
 				"duration_ms":  time.Since(runStart).Milliseconds(),
 				"error":        err.Error(),
-				"prompt_tail":  tailString(currentPrompt, 600),
+				"prompt_tail":  tailString(promptForRun, 600),
 				"output_tail":  tailString(rawOutput, 600),
 				"terminal":     "",
 				"terminal_set": false,
@@ -218,7 +225,8 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			options.ExpectedBranch,
 			options.BeforeHead,
 			afterHead,
-			currentPrompt,
+			turn,
+			promptForRun,
 			result.RawOutput,
 			string(result.Terminal.Type),
 			result.Terminal.Changes,
@@ -234,6 +242,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 		} else {
 			o.logEvent("agent_archive", "archived codex attempt artifacts", map[string]any{
 				"attempt":       attempt + 1,
+				"protocol_turn": turn.TurnID,
 				"metadata_path": paths.MetadataPath,
 				"prompt_path":   paths.PromptPath,
 				"output_path":   paths.OutputPath,
@@ -751,7 +760,12 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("- maintain task records: history/, CHANGELOG.md, and .git/SIMUG_COMMIT_MSG\n")
 	b.WriteString("- use issue_update actions for issue linkage intent; do not comment on issues directly\n")
 	b.WriteString("- never push or create/update PR directly\n")
+	b.WriteString("- emit machine actions only inside one bounded SIMUG coordinator envelope\n")
+	b.WriteString("- emit exactly one coordinator begin envelope and one matching coordinator end envelope for the active turn\n")
+	b.WriteString("- each coordinator action envelope must use event=action and carry the action JSON in payload\n")
+	b.WriteString("- when the coordinator provides a non-empty session_id for the active turn, include that same session_id in every coordinator envelope\n")
 	b.WriteString("- use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined\n")
+	b.WriteString("- coordinator ignores SIMUG lines outside the active turn envelope\n")
 	b.WriteString(fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)\n", expectedBranch, o.cfg.MainBranch))
 	b.WriteString("- keep the working tree clean before finishing\n")
 	if scopeLock != nil {
@@ -766,10 +780,12 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	}
 	b.WriteString("Protocol JSON lines:\n")
 	b.WriteString("SIMUG_MANAGER: <human-friendly manager message>\n")
-	b.WriteString(`SIMUG: {"action":"comment","body":"..."}` + "\n")
-	b.WriteString(`SIMUG: {"action":"reply","comment_id":123,"body":"..."}` + "\n")
-	b.WriteString(`SIMUG: {"action":"issue_update","issue_number":123,"relation":"impacts","comment":"This work affects this issue because ..."}` + "\n")
-	b.WriteString(`SIMUG: {"action":"done","summary":"...","changes":true}` + "\n")
-	b.WriteString(`SIMUG: {"action":"idle","reason":"..."}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"comment","body":"..."}}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"reply","comment_id":123,"body":"..."}}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"issue_update","issue_number":123,"relation":"impacts","comment":"This work affects this issue because ..."}}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"...","changes":true}}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"idle","reason":"..."}}` + "\n")
+	b.WriteString(`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}` + "\n")
 	return b.String()
 }

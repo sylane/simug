@@ -68,6 +68,7 @@ https://keepachangelog.com/en/1.1.0/
 
 ### Changed
 
+- Coordinator protocol ingestion now requires bounded active-turn `SIMUG:` begin/action/end envelopes keyed by turn identity (and optional resumed session identity), so stale or echoed protocol outside the active envelope is ignored instead of contributing false terminal counts.
 - Refined the Phase 7 backlog after `Task 7.4` to queue bounded coordinator protocol work, execution-turn/gate decoupling, reduced-noise verbose progress, full transcript logging, and stronger protocol forensics ahead of the generic maintainability tasks.
 - Modularized the large orchestration loop by extracting managed-PR flow, no-PR bootstrap flow, agent validation, and GitHub mutation/state-transition helpers from `internal/app/run.go` into focused `internal/app/orchestration_*.go` files, with added state-transition unit coverage.
 - When a managed branch is already merged into `origin/main`, no-PR intake now checks out `main`, fast-forwards it, and deletes the merged local branch so dogfood runs do not accumulate stale agent branches.

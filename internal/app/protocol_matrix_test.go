@@ -34,26 +34,26 @@ func TestRunAgentWithValidationProtocolMatrix(t *testing.T) {
 	}{
 		{
 			name:         "valid mixed stdout",
-			agentCmd:     `printf 'thinking...\nSIMUG: {"action":"comment","body":"hi"}\nnoise\nSIMUG: {"action":"done","summary":"ok","changes":false}\n'`,
+			agentCmd:     `printf 'thinking...\nnoise\n'; ` + envelopedAgentCommand(`{"action":"comment","body":"hi"}`, `{"action":"done","summary":"ok","changes":false}`),
 			wantErr:      "",
 			wantTerminal: agent.ActionDone,
 			wantActions:  2,
 		},
 		{
 			name:         "malformed json protocol line",
-			agentCmd:     `printf 'note\nSIMUG: {bad-json}\n'`,
+			agentCmd:     `printf 'note\n'; turn="$SIMUG_PROTOCOL_TURN_ID"; printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"; printf 'SIMUG: {bad-json}\n'; printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"`,
 			wantErr:      "execution/protocol errors",
-			wantErrCause: "invalid json",
+			wantErrCause: "parse active coordinator line",
 		},
 		{
 			name:         "missing terminal action",
-			agentCmd:     `printf 'SIMUG: {"action":"comment","body":"only-comment"}\n'`,
+			agentCmd:     envelopedAgentCommand(`{"action":"comment","body":"only-comment"}`),
 			wantErr:      "execution/protocol errors",
 			wantErrCause: "exactly one terminal action",
 		},
 		{
 			name:         "multiple terminal actions",
-			agentCmd:     `printf 'SIMUG: {"action":"done","summary":"ok","changes":false}\nSIMUG: {"action":"idle","reason":"x"}\n'`,
+			agentCmd:     envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`, `{"action":"idle","reason":"x"}`),
 			wantErr:      "execution/protocol errors",
 			wantErrCause: "exactly one terminal action",
 		},

@@ -140,14 +140,16 @@ git commit -F .git/SIMUG_COMMIT_MSG
 ## Protocol Example (Good Output)
 
 ```text
-SIMUG: {"action":"comment","body":"Implemented Task 4.5 test matrix; running full suite now."}
-SIMUG: {"action":"done","summary":"Added protocol matrix tests and docs updates","changes":true}
+SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"example-turn"}
+SIMUG: {"envelope":"coordinator","event":"action","turn_id":"example-turn","payload":{"action":"comment","body":"Implemented Task 4.5 test matrix; running full suite now."}}
+SIMUG: {"envelope":"coordinator","event":"action","turn_id":"example-turn","payload":{"action":"done","summary":"Added protocol matrix tests and docs updates","changes":true}}
+SIMUG: {"envelope":"coordinator","event":"end","turn_id":"example-turn"}
 ```
 
 Rules:
 
 - Prefix must be exactly `SIMUG:`.
-- Exactly one terminal action is required: `done` or `idle`.
+- Exactly one active-turn envelope is required, with exactly one terminal action inside it: `done` or `idle`.
 
 ## Commit Message Example
 

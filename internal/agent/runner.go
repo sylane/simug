@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -62,6 +63,7 @@ type Result struct {
 	Terminal         Action
 	ManagerMessages  []string
 	QuarantinedLines []string
+	Turn             CoordinatorTurn
 }
 
 type StreamKind string
@@ -77,9 +79,15 @@ type StreamLine struct {
 	Line string
 }
 
+type CoordinatorTurn struct {
+	TurnID    string
+	SessionID string
+}
+
 type Runner struct {
 	Command string
 	OnLine  func(StreamLine)
+	Turn    CoordinatorTurn
 }
 
 type RunError struct {
@@ -116,21 +124,29 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 
 	cmd := exec.CommandContext(ctx, "bash", "-lc", r.Command)
 	cmd.Stdin = strings.NewReader(prompt)
+	if strings.TrimSpace(r.Turn.TurnID) != "" {
+		cmd.Env = append(os.Environ(),
+			"SIMUG_PROTOCOL_TURN_ID="+strings.TrimSpace(r.Turn.TurnID),
+			"SIMUG_PROTOCOL_SESSION_ID="+strings.TrimSpace(r.Turn.SessionID),
+		)
+	}
 	output := newStreamBuffer(r.OnLine)
 	cmd.Stdout = output
 	cmd.Stderr = output
 	err := cmd.Run()
 	output.Flush()
 	raw := output.RawOutput()
-	parsed, parseErr := parseRoutedOutput(raw)
+	parsed, parseErr := parseRoutedOutput(raw, r.Turn)
 	if parseErr == nil {
-		parsed.Actions = removePromptTemplateEchoSequences(parsed.Actions)
-		parsed.Actions = collapseDuplicateTerminalSequences(parsed.Actions)
+		if strings.TrimSpace(r.Turn.TurnID) == "" {
+			parsed.Actions = removePromptTemplateEchoSequences(parsed.Actions)
+			parsed.Actions = collapseDuplicateTerminalSequences(parsed.Actions)
+		}
 	}
 
 	if err != nil {
 		if parseErr == nil {
-			result, resultErr := buildResultFromParsed(raw, parsed)
+			result, resultErr := buildResultFromParsed(raw, parsed, r.Turn)
 			if resultErr == nil {
 				return result, nil
 			}
@@ -155,7 +171,7 @@ func (r Runner) Run(ctx context.Context, prompt string) (Result, error) {
 			RawOutput: raw,
 		}
 	}
-	return buildResultFromParsed(raw, parsed)
+	return buildResultFromParsed(raw, parsed, r.Turn)
 }
 
 type streamBuffer struct {
@@ -236,7 +252,7 @@ func classifyStreamLine(raw []byte) (StreamLine, bool) {
 }
 
 func parseActions(raw string) ([]Action, error) {
-	parsed, err := parseRoutedOutput(raw)
+	parsed, err := parseRoutedOutput(raw, CoordinatorTurn{})
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +265,14 @@ type parsedOutput struct {
 	QuarantinedLines []string
 }
 
-func parseRoutedOutput(raw string) (parsedOutput, error) {
+func parseRoutedOutput(raw string, turn CoordinatorTurn) (parsedOutput, error) {
+	if strings.TrimSpace(turn.TurnID) != "" {
+		return parseTurnBoundedOutput(raw, turn)
+	}
+	return parseLegacyRoutedOutput(raw)
+}
+
+func parseLegacyRoutedOutput(raw string) (parsedOutput, error) {
 	scanner := bufio.NewScanner(strings.NewReader(raw))
 	// Allow large protocol payloads while keeping an upper cap.
 	buf := make([]byte, 0, 64*1024)
@@ -284,6 +307,127 @@ func parseRoutedOutput(raw string) (parsedOutput, error) {
 		return parsedOutput{}, fmt.Errorf("agent output missing protocol lines (expected lines beginning with %q)", protocolPrefixCurrent)
 	}
 	return out, nil
+}
+
+type coordinatorEnvelope struct {
+	Envelope string          `json:"envelope"`
+	Event    string          `json:"event"`
+	TurnID   string          `json:"turn_id"`
+	Session  string          `json:"session_id,omitempty"`
+	Payload  json.RawMessage `json:"payload,omitempty"`
+}
+
+func parseTurnBoundedOutput(raw string, turn CoordinatorTurn) (parsedOutput, error) {
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	out := parsedOutput{}
+	active := false
+	completed := false
+	sawBegin := false
+	sawEnd := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		switch {
+		case strings.HasPrefix(line, protocolPrefixCurrent):
+			jsonPart := strings.TrimSpace(strings.TrimPrefix(line, protocolPrefixCurrent))
+			envelope, err := parseCoordinatorEnvelope(jsonPart)
+			if err != nil {
+				if active && !completed {
+					return parsedOutput{}, fmt.Errorf("parse active coordinator line %q: %w", line, err)
+				}
+				continue
+			}
+			if !coordinatorEnvelopeMatchesTurn(envelope, turn) {
+				continue
+			}
+			switch envelope.Event {
+			case "begin":
+				if completed {
+					continue
+				}
+				if active {
+					return parsedOutput{}, fmt.Errorf("duplicate active coordinator begin for turn %q", strings.TrimSpace(turn.TurnID))
+				}
+				active = true
+				sawBegin = true
+			case "action":
+				if !active || completed {
+					continue
+				}
+				action, err := parseActionJSON(strings.TrimSpace(string(envelope.Payload)))
+				if err != nil {
+					return parsedOutput{}, fmt.Errorf("parse active coordinator action %q: %w", line, err)
+				}
+				out.Actions = append(out.Actions, action)
+			case "end":
+				if !active || completed {
+					continue
+				}
+				completed = true
+				sawEnd = true
+			default:
+				if active && !completed {
+					return parsedOutput{}, fmt.Errorf("unsupported coordinator envelope event %q", envelope.Event)
+				}
+			}
+		case strings.HasPrefix(line, protocolPrefixManager):
+			message := strings.TrimSpace(strings.TrimPrefix(line, protocolPrefixManager))
+			if message != "" {
+				out.ManagerMessages = append(out.ManagerMessages, message)
+			}
+		case line != "":
+			out.QuarantinedLines = append(out.QuarantinedLines, line)
+		default:
+			continue
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return parsedOutput{}, fmt.Errorf("scan agent output: %w", err)
+	}
+	if !sawBegin {
+		return parsedOutput{}, fmt.Errorf("agent output missing active coordinator envelope begin for turn %q", strings.TrimSpace(turn.TurnID))
+	}
+	if !sawEnd {
+		return parsedOutput{}, fmt.Errorf("active coordinator envelope missing end event for turn %q", strings.TrimSpace(turn.TurnID))
+	}
+	if len(out.Actions) == 0 {
+		return parsedOutput{}, fmt.Errorf("active coordinator envelope for turn %q contained no action payloads", strings.TrimSpace(turn.TurnID))
+	}
+	return out, nil
+}
+
+func parseCoordinatorEnvelope(raw string) (coordinatorEnvelope, error) {
+	var envelope coordinatorEnvelope
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		return coordinatorEnvelope{}, fmt.Errorf("invalid json: %w", err)
+	}
+	if strings.TrimSpace(envelope.Envelope) != "coordinator" {
+		return coordinatorEnvelope{}, fmt.Errorf("missing or invalid envelope")
+	}
+	if strings.TrimSpace(envelope.TurnID) == "" {
+		return coordinatorEnvelope{}, fmt.Errorf("missing field turn_id")
+	}
+	switch strings.TrimSpace(envelope.Event) {
+	case "begin", "end":
+		return envelope, nil
+	case "action":
+		if len(bytes.TrimSpace(envelope.Payload)) == 0 {
+			return coordinatorEnvelope{}, fmt.Errorf("action envelope requires non-empty payload")
+		}
+		return envelope, nil
+	default:
+		return coordinatorEnvelope{}, fmt.Errorf("missing or invalid event")
+	}
+}
+
+func coordinatorEnvelopeMatchesTurn(envelope coordinatorEnvelope, turn CoordinatorTurn) bool {
+	if strings.TrimSpace(envelope.TurnID) != strings.TrimSpace(turn.TurnID) {
+		return false
+	}
+	return strings.TrimSpace(envelope.Session) == strings.TrimSpace(turn.SessionID)
 }
 
 func removePromptTemplateEchoSequences(actions []Action) []Action {
@@ -407,7 +551,7 @@ func actionSequenceEqual(a, b []Action) bool {
 	return true
 }
 
-func buildResultFromParsed(raw string, parsed parsedOutput) (Result, error) {
+func buildResultFromParsed(raw string, parsed parsedOutput, turn CoordinatorTurn) (Result, error) {
 	terminalCount := 0
 	var terminal Action
 	for _, a := range parsed.Actions {
@@ -426,6 +570,7 @@ func buildResultFromParsed(raw string, parsed parsedOutput) (Result, error) {
 		Terminal:         terminal,
 		ManagerMessages:  parsed.ManagerMessages,
 		QuarantinedLines: parsed.QuarantinedLines,
+		Turn:             turn,
 	}, nil
 }
 

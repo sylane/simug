@@ -21,6 +21,8 @@ type loggedEvent struct {
 
 type archivedMetadata struct {
 	ExpectedBranch         string   `json:"expected_branch"`
+	ProtocolTurnID         string   `json:"protocol_turn_id"`
+	ProtocolSessionID      string   `json:"protocol_session_id"`
 	AgentError             string   `json:"agent_error"`
 	ValidationError        string   `json:"validation_error"`
 	ProtocolActionCount    int      `json:"protocol_action_count"`
@@ -128,6 +130,12 @@ func explainLastFailureFromRepo(repoRoot string) (string, error) {
 	}
 	if archiveMeta.ExpectedBranch != "" {
 		b.WriteString(fmt.Sprintf("- expected_branch: %s\n", archiveMeta.ExpectedBranch))
+	}
+	if archiveMeta.ProtocolTurnID != "" {
+		b.WriteString(fmt.Sprintf("- protocol_turn_id: %s\n", archiveMeta.ProtocolTurnID))
+	}
+	if archiveMeta.ProtocolSessionID != "" {
+		b.WriteString(fmt.Sprintf("- protocol_session_id: %s\n", archiveMeta.ProtocolSessionID))
 	}
 	if archiveMeta.AgentError != "" {
 		b.WriteString(fmt.Sprintf("- agent_error: %s\n", archiveMeta.AgentError))

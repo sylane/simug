@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"simug/internal/agent"
 	"simug/internal/runtimepaths"
 )
 
@@ -25,6 +26,8 @@ type archivedAttemptMetadata struct {
 	ExpectedBranch          string   `json:"expected_branch"`
 	BeforeHead              string   `json:"before_head"`
 	AfterHead               string   `json:"after_head"`
+	ProtocolTurnID          string   `json:"protocol_turn_id,omitempty"`
+	ProtocolSessionID       string   `json:"protocol_session_id,omitempty"`
 	TerminalAction          string   `json:"terminal_action"`
 	TerminalHasChange       bool     `json:"terminal_has_changes"`
 	AgentError              string   `json:"agent_error,omitempty"`
@@ -62,6 +65,7 @@ func (o *orchestrator) archiveAgentAttempt(
 	expectedBranch string,
 	beforeHead string,
 	afterHead string,
+	turn agent.CoordinatorTurn,
 	prompt string,
 	rawOutput string,
 	terminalAction string,
@@ -106,6 +110,8 @@ func (o *orchestrator) archiveAgentAttempt(
 		ExpectedBranch:          expectedBranch,
 		BeforeHead:              beforeHead,
 		AfterHead:               afterHead,
+		ProtocolTurnID:          turn.TurnID,
+		ProtocolSessionID:       turn.SessionID,
 		TerminalAction:          terminalAction,
 		TerminalHasChange:       terminalHasChanges,
 		AgentError:              agentErrText,
