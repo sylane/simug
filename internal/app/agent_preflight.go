@@ -27,8 +27,9 @@ func preflightAgentCommand(command string) error {
 	}
 
 	out, err := agentCommandPreflightProbe(trimmed)
-	if hint := agent.CodexRuntimeHint(trimmed, out); hint != "" {
-		return fmt.Errorf("codex preflight failed for %q: %s", trimmed, hint)
+	assessment := agent.CodexRuntimeAssessment(trimmed, out)
+	if assessment.Hint != "" && err != nil {
+		return fmt.Errorf("codex preflight failed for %q: %s", trimmed, assessment.Hint)
 	}
 	if err != nil {
 		return fmt.Errorf("codex preflight failed for %q: %w: %s", trimmed, err, limitString(out, 600))

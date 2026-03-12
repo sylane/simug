@@ -52,7 +52,7 @@ func TestPreflightAgentCommandFailsWhenCodexMissing(t *testing.T) {
 	}
 }
 
-func TestPreflightAgentCommandClassifiesPermissionFailures(t *testing.T) {
+func TestPreflightAgentCommandAllowsSuccessfulPermissionWarnings(t *testing.T) {
 	restoreLookPath := setAgentCommandProbersForTest(
 		func(name string) (string, error) { return "/usr/bin/codex", nil },
 		func(name string, args ...string) error { return nil },
@@ -61,6 +61,23 @@ func TestPreflightAgentCommandClassifiesPermissionFailures(t *testing.T) {
 
 	restoreProbe := setAgentCommandPreflightProbeForTest(func(command string) (string, error) {
 		return "WARNING: failed to clean up stale arg0 temp dirs: Permission denied (os error 13) at path \"/home/me/.codex/tmp/arg0/codex-arg0x\"", nil
+	})
+	defer restoreProbe()
+
+	if err := preflightAgentCommand("codex exec"); err != nil {
+		t.Fatalf("expected warning-only probe to pass, got %v", err)
+	}
+}
+
+func TestPreflightAgentCommandClassifiesPermissionFailuresWhenProbeFails(t *testing.T) {
+	restoreLookPath := setAgentCommandProbersForTest(
+		func(name string) (string, error) { return "/usr/bin/codex", nil },
+		func(name string, args ...string) error { return nil },
+	)
+	defer restoreLookPath()
+
+	restoreProbe := setAgentCommandPreflightProbeForTest(func(command string) (string, error) {
+		return "WARNING: failed to clean up stale arg0 temp dirs: Permission denied (os error 13) at path \"/home/me/.codex/tmp/arg0/codex-arg0x\"", errors.New("exit status 1")
 	})
 	defer restoreProbe()
 

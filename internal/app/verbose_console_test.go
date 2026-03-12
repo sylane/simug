@@ -18,14 +18,11 @@ func TestEmitVerbosePrompt(t *testing.T) {
 	o.emitVerbosePrompt(2, 3, "line one\nline two", "session-123")
 
 	output := buf.String()
-	if !strings.Contains(output, "simug->codex [attempt 2/3, resume session session-123]") {
+	if !strings.Contains(output, "simug[milestone] codex attempt 2/3 start resume_session=session-123 prompt_lines=2") {
 		t.Fatalf("unexpected prompt header: %s", output)
 	}
-	if !strings.Contains(output, "line one\nline two\n") {
-		t.Fatalf("missing prompt body: %s", output)
-	}
-	if !strings.Contains(output, "simug->codex [end prompt]") {
-		t.Fatalf("missing prompt footer: %s", output)
+	if strings.Contains(output, "line one") || strings.Contains(output, "line two") {
+		t.Fatalf("verbose prompt should not dump prompt body: %s", output)
 	}
 }
 
@@ -49,5 +46,19 @@ func TestEmitVerboseAgentLineRoutesKinds(t *testing.T) {
 	}
 	if !strings.Contains(output, "codex[raw] thinking...\n") {
 		t.Fatalf("missing diagnostic output: %s", output)
+	}
+}
+
+func TestEmitVerboseMilestone(t *testing.T) {
+	var buf bytes.Buffer
+	o := orchestrator{
+		verboseConsole: true,
+		console:        &buf,
+	}
+
+	o.emitVerboseMilestone("attempt %d archived transcript=%s", 1, "/tmp/transcript.log")
+
+	if got := buf.String(); !strings.Contains(got, "simug[milestone] attempt 1 archived transcript=/tmp/transcript.log\n") {
+		t.Fatalf("unexpected milestone output: %s", got)
 	}
 }

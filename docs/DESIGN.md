@@ -323,10 +323,10 @@ Issue triage comments posted by orchestrator include a machine marker so repeate
 - When `SIMUG_AGENT_CMD` is unset, simug auto-detects command mode and prefers non-interactive `codex exec`, with compatibility fallback to `codex` when needed.
 - For staged bootstrap continuity with default `codex exec`, simug resumes turns with `codex exec resume <bootstrap_session_id> -` when a session id has been captured.
 - Simug does not provision Codex auth/config; it relies on environment-configured Codex runtime and reports execution/protocol failures with diagnostics.
-- For Codex commands, startup performs a preflight help probe and fails fast with actionable diagnostics for missing CLI, auth errors, or unwritable Codex runtime paths.
+- For Codex commands, startup performs a preflight help probe and fails fast with actionable diagnostics for missing CLI, auth errors, or fatal runtime-path failures; warning-only `~/.codex/tmp/arg0` maintenance messages from otherwise successful probes do not block execution.
 - Orchestrator sends a structured prompt through stdin.
 - Orchestrator captures stdout/stderr for protocol parsing and diagnostics.
-- When `simug run --verbose` is enabled, orchestrator also mirrors the prompt plus live Codex output to the operator console, tagging manager/protocol/raw lines separately without changing archived raw output.
+- When `simug run --verbose` is enabled, orchestrator emits concise structured milestones plus live tagged Codex manager/protocol/raw lines to the operator console, while the full timestamped prompt/output transcript is archived per attempt.
 - If Codex exits non-zero but emitted a valid protocol transcript with exactly one terminal action, orchestrator uses the validated protocol result; otherwise command failure remains fatal with diagnostics.
 
 ### 8.2 Mandatory behavioral constraints given to Codex
@@ -625,7 +625,7 @@ Runtime logs print:
 - Codex run starts/ends
 - validation failures and repair attempts
 - push/PR creation/comment/issue-link actions
-- optional live verbose console stream of prompt text plus tagged Codex output (`codex[manager]`, `codex[protocol]`, `codex[raw]`)
+- optional live verbose console stream of concise milestones plus tagged Codex output (`codex[manager]`, `codex[protocol]`, `codex[raw]`)
 
 The worker appends JSONL audit entries to `.simug/events.log`.
 
@@ -641,7 +641,8 @@ High-fidelity trace coverage:
 - each Codex attempt is archived under `.simug/archive/agent/<run_id>/tick-<tick_seq>/attempt-<n>/` with:
   - `prompt.txt` (exact prompt input),
   - `raw_output.txt` (raw agent stdout payload),
-  - `metadata.json` (attempt/run/tick/branch/error correlation fields plus protocol action excerpts, terminal diagnostics, and rollout/session path references when detected).
+  - `transcript.log` (timestamped `simug`/`codex` interaction stream including prompt lines, live output, and attempt milestones),
+  - `metadata.json` (attempt/run/tick/branch/error correlation fields plus protocol action excerpts, terminal diagnostics, transcript path, and rollout/session path references when detected).
 
 This enables deterministic reconstruction of a failed run without rerunning the worker.
 

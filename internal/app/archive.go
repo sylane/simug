@@ -12,9 +12,10 @@ import (
 )
 
 type archivedAttemptPaths struct {
-	MetadataPath string
-	PromptPath   string
-	OutputPath   string
+	MetadataPath   string
+	PromptPath     string
+	OutputPath     string
+	TranscriptPath string
 }
 
 type archivedAttemptMetadata struct {
@@ -43,6 +44,7 @@ type archivedAttemptMetadata struct {
 	ProtocolParserHint      string   `json:"protocol_parser_hint,omitempty"`
 	RolloutRefs             []string `json:"rollout_refs,omitempty"`
 	SessionRefs             []string `json:"session_refs,omitempty"`
+	TranscriptPath          string   `json:"transcript_path,omitempty"`
 }
 
 type attemptArchiveDiagnostics struct {
@@ -68,6 +70,7 @@ func (o *orchestrator) archiveAgentAttempt(
 	turn agent.CoordinatorTurn,
 	prompt string,
 	rawOutput string,
+	transcript string,
 	terminalAction string,
 	terminalHasChanges bool,
 	agentErrText string,
@@ -96,9 +99,10 @@ func (o *orchestrator) archiveAgentAttempt(
 	}
 
 	paths := archivedAttemptPaths{
-		MetadataPath: filepath.Join(archiveDir, "metadata.json"),
-		PromptPath:   filepath.Join(archiveDir, "prompt.txt"),
-		OutputPath:   filepath.Join(archiveDir, "raw_output.txt"),
+		MetadataPath:   filepath.Join(archiveDir, "metadata.json"),
+		PromptPath:     filepath.Join(archiveDir, "prompt.txt"),
+		OutputPath:     filepath.Join(archiveDir, "raw_output.txt"),
+		TranscriptPath: filepath.Join(archiveDir, "transcript.log"),
 	}
 
 	meta := archivedAttemptMetadata{
@@ -127,6 +131,7 @@ func (o *orchestrator) archiveAgentAttempt(
 		ProtocolParserHint:      diagnostics.ParserHint,
 		RolloutRefs:             diagnostics.RolloutRefs,
 		SessionRefs:             diagnostics.SessionRefs,
+		TranscriptPath:          paths.TranscriptPath,
 	}
 	metaJSON, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -138,6 +143,9 @@ func (o *orchestrator) archiveAgentAttempt(
 	}
 	if err := os.WriteFile(paths.OutputPath, []byte(rawOutput), 0o644); err != nil {
 		return archivedAttemptPaths{}, fmt.Errorf("write output archive: %w", err)
+	}
+	if err := os.WriteFile(paths.TranscriptPath, []byte(transcript), 0o644); err != nil {
+		return archivedAttemptPaths{}, fmt.Errorf("write transcript archive: %w", err)
 	}
 	if err := os.WriteFile(paths.MetadataPath, append(metaJSON, '\n'), 0o644); err != nil {
 		return archivedAttemptPaths{}, fmt.Errorf("write metadata archive: %w", err)

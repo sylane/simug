@@ -14,16 +14,15 @@ func (o *orchestrator) emitVerbosePrompt(attempt, maxAttempts int, prompt, sessi
 	}
 
 	w := o.consoleWriter()
-	fmt.Fprintf(w, "simug->codex [attempt %d/%d", attempt, maxAttempts)
+	fmt.Fprintf(w, "simug[milestone] codex attempt %d/%d start", attempt, maxAttempts)
 	if strings.TrimSpace(sessionID) != "" {
-		fmt.Fprintf(w, ", resume session %s", strings.TrimSpace(sessionID))
+		fmt.Fprintf(w, " resume_session=%s", strings.TrimSpace(sessionID))
 	}
-	fmt.Fprintln(w, "]")
-	fmt.Fprintln(w, prompt)
-	if !strings.HasSuffix(prompt, "\n") {
-		fmt.Fprintln(w)
+	lineCount := len(splitTranscriptLines(prompt))
+	if lineCount > 0 {
+		fmt.Fprintf(w, " prompt_lines=%d", lineCount)
 	}
-	fmt.Fprintln(w, "simug->codex [end prompt]")
+	fmt.Fprintln(w)
 }
 
 func (o *orchestrator) emitVerboseAgentLine(line agent.StreamLine) {
@@ -44,6 +43,13 @@ func (o *orchestrator) emitVerboseAgentLine(line agent.StreamLine) {
 	}
 
 	fmt.Fprintf(o.consoleWriter(), "%s %s\n", label, body)
+}
+
+func (o *orchestrator) emitVerboseMilestone(format string, args ...any) {
+	if o == nil || !o.verboseConsole {
+		return
+	}
+	fmt.Fprintf(o.consoleWriter(), "simug[milestone] %s\n", fmt.Sprintf(format, args...))
 }
 
 func (o *orchestrator) consoleWriter() io.Writer {

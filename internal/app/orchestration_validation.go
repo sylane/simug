@@ -86,6 +86,12 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 	for attempt := 0; attempt <= o.cfg.MaxRepairAttempts; attempt++ {
 		turn := newCoordinatorTurn(o.runID, o.tickSeq, attempt+1, options.SessionID)
 		promptForRun := appendCoordinatorTurnPrompt(currentPrompt, turn)
+		transcript := newAttemptTranscript()
+		transcript.RecordMilestone(fmt.Sprintf("codex attempt %d/%d start expected_branch=%s", attempt+1, o.cfg.MaxRepairAttempts+1, options.ExpectedBranch))
+		if strings.TrimSpace(options.SessionID) != "" {
+			transcript.RecordMilestone(fmt.Sprintf("resume session %s", strings.TrimSpace(options.SessionID)))
+		}
+		transcript.RecordPrompt(promptForRun)
 		if err := o.recordInFlightAttemptStart(attempt+1, o.cfg.MaxRepairAttempts+1, options.ExpectedBranch, options.BeforeHead, promptForRun); err != nil {
 			return agent.Result{}, "", err
 		}
@@ -112,9 +118,13 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			runner.Command = resumeCommand
 		}
 		runner.Turn = turn
+		runner.OnLine = transcript.RecordAgentLine
 		if o.verboseConsole {
 			o.emitVerbosePrompt(attempt+1, o.cfg.MaxRepairAttempts+1, promptForRun, options.SessionID)
-			runner.OnLine = o.emitVerboseAgentLine
+			runner.OnLine = func(line agent.StreamLine) {
+				transcript.RecordAgentLine(line)
+				o.emitVerboseAgentLine(line)
+			}
 		}
 
 		result, err := runner.Run(ctx, promptForRun)
@@ -129,6 +139,8 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 				afterHead = observedHead
 			}
 			diagnostics := buildAttemptArchiveDiagnostics(rawOutput, nil, err, nil)
+			transcript.RecordMilestone(fmt.Sprintf("codex attempt %d/%d command failure: %s", attempt+1, o.cfg.MaxRepairAttempts+1, limitString(err.Error(), 400)))
+			transcriptText := transcript.Text()
 			if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, "", err.Error(), ""); journalErr != nil {
 				return agent.Result{}, "", journalErr
 			}
@@ -141,6 +153,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 				turn,
 				promptForRun,
 				rawOutput,
+				transcriptText,
 				"",
 				false,
 				err.Error(),
@@ -154,12 +167,14 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 				})
 			} else {
 				o.logEvent("agent_archive", "archived codex attempt artifacts", map[string]any{
-					"attempt":       attempt + 1,
-					"protocol_turn": turn.TurnID,
-					"metadata_path": paths.MetadataPath,
-					"prompt_path":   paths.PromptPath,
-					"output_path":   paths.OutputPath,
+					"attempt":         attempt + 1,
+					"protocol_turn":   turn.TurnID,
+					"metadata_path":   paths.MetadataPath,
+					"prompt_path":     paths.PromptPath,
+					"output_path":     paths.OutputPath,
+					"transcript_path": paths.TranscriptPath,
 				})
+				o.emitVerboseMilestone("attempt %d/%d archived transcript=%s", attempt+1, o.cfg.MaxRepairAttempts+1, paths.TranscriptPath)
 			}
 
 			o.logEvent("agent_attempt", "codex attempt failed", map[string]any{
@@ -215,10 +230,16 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 		if validationErr == nil && options.ValidateResult != nil {
 			validationErr = options.ValidateResult(result, options.BeforeHead, afterHead)
 		}
+		if validationErr == nil {
+			transcript.RecordMilestone(fmt.Sprintf("post-agent validation passed terminal=%s changes=%t after_head=%s", result.Terminal.Type, result.Terminal.Changes, afterHead))
+		} else {
+			transcript.RecordMilestone(fmt.Sprintf("post-agent validation failed: %s", limitString(validationErr.Error(), 400)))
+		}
 		if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, string(result.Terminal.Type), "", errorText(validationErr)); journalErr != nil {
 			return agent.Result{}, "", journalErr
 		}
 		diagnostics := buildAttemptArchiveDiagnostics(result.RawOutput, &result, nil, validationErr)
+		transcriptText := transcript.Text()
 		paths, archiveErr := o.archiveAgentAttempt(
 			attempt+1,
 			o.cfg.MaxRepairAttempts+1,
@@ -228,6 +249,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			turn,
 			promptForRun,
 			result.RawOutput,
+			transcriptText,
 			string(result.Terminal.Type),
 			result.Terminal.Changes,
 			"",
@@ -241,15 +263,18 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			})
 		} else {
 			o.logEvent("agent_archive", "archived codex attempt artifacts", map[string]any{
-				"attempt":       attempt + 1,
-				"protocol_turn": turn.TurnID,
-				"metadata_path": paths.MetadataPath,
-				"prompt_path":   paths.PromptPath,
-				"output_path":   paths.OutputPath,
+				"attempt":         attempt + 1,
+				"protocol_turn":   turn.TurnID,
+				"metadata_path":   paths.MetadataPath,
+				"prompt_path":     paths.PromptPath,
+				"output_path":     paths.OutputPath,
+				"transcript_path": paths.TranscriptPath,
 			})
+			o.emitVerboseMilestone("attempt %d/%d archived transcript=%s", attempt+1, o.cfg.MaxRepairAttempts+1, paths.TranscriptPath)
 		}
 
 		if validationErr == nil {
+			o.emitVerboseMilestone("attempt %d/%d accepted terminal=%s changes=%t", attempt+1, o.cfg.MaxRepairAttempts+1, result.Terminal.Type, result.Terminal.Changes)
 			if err := o.clearInFlightAttemptJournal(); err != nil {
 				return agent.Result{}, "", err
 			}
@@ -274,6 +299,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 			"terminal_has_changes": result.Terminal.Changes,
 			"error":                validationErr.Error(),
 		})
+		o.emitVerboseMilestone("attempt %d/%d validation failed: %s", attempt+1, o.cfg.MaxRepairAttempts+1, limitString(validationErr.Error(), 220))
 		if options.FailClosedOnHeadAdvance && strings.TrimSpace(afterHead) != strings.TrimSpace(options.BeforeHead) {
 			return agent.Result{}, "", fmt.Errorf("bootstrap attempt advanced HEAD from %q to %q before successful validation; refusing automatic repair after validation failure: %w", options.BeforeHead, afterHead, validationErr)
 		}

@@ -10,9 +10,9 @@ https://keepachangelog.com/en/1.1.0/
 ### Added
 
 - Initial changelog scaffold for `simug` task-based development workflow.
-- Added opt-in `simug run --verbose` / `-v` console tracing that mirrors per-attempt Codex prompts and live tagged Codex output (`codex[manager]`, `codex[protocol]`, `codex[raw]`) while preserving archived raw output for parsing and forensics.
+- Added opt-in `simug run --verbose` / `-v` console tracing that reports concise per-attempt milestones plus live tagged Codex output (`codex[manager]`, `codex[protocol]`, `codex[raw]`), with the full prompt/output exchange preserved in per-attempt transcript logs.
 - High-fidelity orchestrator tracing in `.simug/events.log` with per-run/per-tick command traces (`git`/`gh`), exit codes, stdout/stderr tails, and explicit invariant decision events.
-- Per-attempt Codex archive artifacts under `.simug/archive/agent/...` storing prompt input, raw output, and metadata linked to run/tick/attempt context.
+- Per-attempt Codex archive artifacts under `.simug/archive/agent/...` storing prompt input, raw output, timestamped transcript logs, and metadata linked to run/tick/attempt context.
 - New `simug explain-last-failure` command to summarize the latest failed tick with violated invariant context and suggested next action using event and archive artifacts.
 - Prompt contract regression tests for managed/bootstrap/repair prompt builders to catch drift in required protocol rules (`SIMUG:` lines, terminal-action rule, no-push constraints).
 - Prompt-driven protocol matrix tests covering mixed stdout with valid, malformed JSON, missing-terminal, and multi-terminal Codex response classes.
@@ -48,7 +48,7 @@ https://keepachangelog.com/en/1.1.0/
 - Added agent-command auto-detection for `SIMUG_AGENT_CMD` defaults, preferring non-interactive `codex exec` with compatibility fallback to `codex`.
 - Added explicit startup trace of resolved `agent_command` in runtime output/event log metadata for easier Codex integration diagnosis.
 - Added Codex runtime diagnostics classification for common failures (auth/permission/command-not-found) so runner errors include actionable hints.
-- Added Codex preflight checks in startup and canary scripts to fail fast on auth/path-permission blockers before orchestration/canary execution.
+- Added Codex preflight checks in startup and canary scripts to fail fast on auth/fatal runtime blockers before orchestration/canary execution, while allowing successful probes that only emit sandbox-style `~/.codex/tmp/arg0` maintenance warnings.
 - Added protocol-sequence collapse for real Codex transcript echoes so identical repeated terminal sequences are normalized to one final actionable sequence.
 - Added protocol-first runner recovery so non-zero Codex exits are accepted when emitted output is still fully parseable and protocol-valid.
 - Added staged bootstrap intent handshake for no-PR flow: a read-only intent turn (`INTENT_JSON` + `done changes=false`) that persists validated `bootstrap_intent` in state before execution is allowed.

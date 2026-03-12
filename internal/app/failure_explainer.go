@@ -221,7 +221,7 @@ func suggestedAction(failureReason, invariantReason, expectedBranch, agentError,
 		}
 		return "re-align local checkout with managed PR head and origin, then rerun simug"
 	case strings.Contains(all, "agent protocol"), strings.Contains(all, "missing protocol lines"):
-		return "inspect archived raw_output.txt and prompt.txt for the failed attempt, then tighten prompt/protocol handling before rerun"
+		return "inspect archived transcript.log, raw_output.txt, and prompt.txt for the failed attempt, then tighten prompt/protocol handling before rerun"
 	case strings.Contains(all, "failed validation"):
 		return "inspect invariant_decision and archive metadata for the failed attempt, repair repository consistency, then rerun simug"
 	default:
