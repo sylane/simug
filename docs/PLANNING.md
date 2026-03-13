@@ -379,7 +379,7 @@ Execution note:
   - Scope: extract shared marker/comment dedupe patterns used by issue analysis and issue-to-PR backlink flows into reusable helpers.
   - Done when: mutation idempotency logic is uniform and no longer duplicated across orchestrator paths.
 
-- [ ] **Task 7.7: Integration test harness consolidation**
+- [x] **Task 7.7: Integration test harness consolidation**
   - Scope: reduce fixture and setup duplication in integration tests with helper builders and explicit scenario matrices.
   - Done when: adding new orchestration scenarios requires minimal boilerplate while preserving determinism.
 
