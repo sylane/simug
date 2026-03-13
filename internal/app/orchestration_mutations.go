@@ -14,6 +14,19 @@ import (
 	"simug/internal/state"
 )
 
+type issueCommentMutationSpec struct {
+	IssueNumber      int
+	Marker           string
+	Body             string
+	EventKind        string
+	DuplicateMessage string
+	PostMessage      string
+	ListError        string
+	PostError        string
+	DuplicateFields  map[string]any
+	PostFields       map[string]any
+}
+
 func (o *orchestrator) processMergedPRIssueFinalization(ctx context.Context, prNumber int) error {
 	if prNumber <= 0 {
 		return nil
@@ -46,41 +59,32 @@ func (o *orchestrator) processMergedPRIssueFinalization(ctx context.Context, prN
 		}
 
 		marker := issueFinalizationMarker(*link)
-		comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber)
-		if err != nil {
-			return fmt.Errorf("list issue comments for finalization marker on issue #%d: %w", link.IssueNumber, err)
-		}
-		hasMarker := false
-		for _, comment := range comments {
-			if comment.User.Login != o.user {
-				continue
-			}
-			if strings.Contains(comment.Body, marker) {
-				hasMarker = true
-				break
-			}
-		}
-
-		if hasMarker {
-			o.logEvent("issue_finalize", "issue finalization marker already present; skipping duplicate finalization comment", map[string]any{
+		body := buildIssueFinalizationCommentBody(o.repo.FullName(), *link)
+		if _, err := o.ensureIssueCommentMutation(ctx, issueCommentMutationSpec{
+			IssueNumber:      link.IssueNumber,
+			Marker:           marker,
+			Body:             body,
+			EventKind:        "issue_finalize",
+			DuplicateMessage: "issue finalization marker already present; skipping duplicate finalization comment",
+			PostMessage:      "posting merged-PR issue finalization comment",
+			ListError:        fmt.Sprintf("list issue comments for finalization marker on issue #%d", link.IssueNumber),
+			PostError:        fmt.Sprintf("post merged-PR finalization comment on issue #%d", link.IssueNumber),
+			DuplicateFields: map[string]any{
 				"pr":       prNumber,
 				"issue":    link.IssueNumber,
 				"relation": link.Relation,
 				"key":      link.IdempotencyKey,
 				"marker":   marker,
-			})
-		} else {
-			body := buildIssueFinalizationCommentBody(o.repo.FullName(), *link)
-			o.logEvent("issue_finalize", "posting merged-PR issue finalization comment", map[string]any{
+			},
+			PostFields: map[string]any{
 				"pr":       prNumber,
 				"issue":    link.IssueNumber,
 				"relation": link.Relation,
 				"key":      link.IdempotencyKey,
 				"marker":   marker,
-			})
-			if err := github.CommentIssue(ctx, o.repoRoot, link.IssueNumber, limitString(body, 60000)); err != nil {
-				return fmt.Errorf("post merged-PR finalization comment on issue #%d: %w", link.IssueNumber, err)
-			}
+			},
+		}); err != nil {
+			return err
 		}
 
 		if strings.EqualFold(strings.TrimSpace(link.Relation), string(agent.IssueRelationFixes)) &&
@@ -102,32 +106,28 @@ func (o *orchestrator) processMergedPRIssueFinalization(ctx context.Context, prN
 
 func (o *orchestrator) ensureIssueTriageComment(ctx context.Context, report agent.Action) error {
 	marker := issueTriageMarker(report)
-	comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), report.IssueNumber)
-	if err != nil {
-		return fmt.Errorf("list issue comments for triage marker on issue #%d: %w", report.IssueNumber, err)
-	}
-	for _, comment := range comments {
-		if comment.User.Login != o.user {
-			continue
-		}
-		if strings.Contains(comment.Body, marker) {
-			o.logEvent("issue_triage_comment", "triage marker already present; skipping duplicate issue comment", map[string]any{
-				"issue":  report.IssueNumber,
-				"marker": marker,
-			})
-			return nil
-		}
-	}
-
 	body := buildIssueTriageCommentBody(report)
-	o.logEvent("issue_triage_comment", "posting deterministic issue triage analysis comment", map[string]any{
-		"issue":      report.IssueNumber,
-		"marker":     marker,
-		"needs_task": report.NeedsTask,
-		"relevant":   report.Relevant,
-	})
-	if err := github.CommentIssue(ctx, o.repoRoot, report.IssueNumber, limitString(body, 60000)); err != nil {
-		return fmt.Errorf("post issue triage comment on issue #%d: %w", report.IssueNumber, err)
+	if _, err := o.ensureIssueCommentMutation(ctx, issueCommentMutationSpec{
+		IssueNumber:      report.IssueNumber,
+		Marker:           marker,
+		Body:             body,
+		EventKind:        "issue_triage_comment",
+		DuplicateMessage: "triage marker already present; skipping duplicate issue comment",
+		PostMessage:      "posting deterministic issue triage analysis comment",
+		ListError:        fmt.Sprintf("list issue comments for triage marker on issue #%d", report.IssueNumber),
+		PostError:        fmt.Sprintf("post issue triage comment on issue #%d", report.IssueNumber),
+		DuplicateFields: map[string]any{
+			"issue":  report.IssueNumber,
+			"marker": marker,
+		},
+		PostFields: map[string]any{
+			"issue":      report.IssueNumber,
+			"marker":     marker,
+			"needs_task": report.NeedsTask,
+			"relevant":   report.Relevant,
+		},
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -167,34 +167,30 @@ func (o *orchestrator) maybePostIssueDerivedPRBacklink(ctx context.Context, prNu
 	}
 
 	marker := issuePRBacklinkMarker(issueNumber, taskID, prNumber)
-	comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), issueNumber)
-	if err != nil {
-		return fmt.Errorf("list issue comments for PR backlink marker on issue #%d: %w", issueNumber, err)
-	}
-	for _, comment := range comments {
-		if comment.User.Login != o.user {
-			continue
-		}
-		if strings.Contains(comment.Body, marker) {
-			o.logEvent("issue_backlink", "PR backlink marker already present; skipping duplicate issue comment", map[string]any{
-				"issue":   issueNumber,
-				"task_id": taskID,
-				"pr":      prNumber,
-				"marker":  marker,
-			})
-			return nil
-		}
-	}
-
 	body := buildIssuePRBacklinkCommentBody(o.repo.FullName(), issueNumber, taskID, prNumber)
-	o.logEvent("issue_backlink", "posting issue-to-PR backlink comment", map[string]any{
-		"issue":   issueNumber,
-		"task_id": taskID,
-		"pr":      prNumber,
-		"marker":  marker,
-	})
-	if err := github.CommentIssue(ctx, o.repoRoot, issueNumber, limitString(body, 60000)); err != nil {
-		return fmt.Errorf("post issue-to-PR backlink comment on issue #%d: %w", issueNumber, err)
+	if _, err := o.ensureIssueCommentMutation(ctx, issueCommentMutationSpec{
+		IssueNumber:      issueNumber,
+		Marker:           marker,
+		Body:             body,
+		EventKind:        "issue_backlink",
+		DuplicateMessage: "PR backlink marker already present; skipping duplicate issue comment",
+		PostMessage:      "posting issue-to-PR backlink comment",
+		ListError:        fmt.Sprintf("list issue comments for PR backlink marker on issue #%d", issueNumber),
+		PostError:        fmt.Sprintf("post issue-to-PR backlink comment on issue #%d", issueNumber),
+		DuplicateFields: map[string]any{
+			"issue":   issueNumber,
+			"task_id": taskID,
+			"pr":      prNumber,
+			"marker":  marker,
+		},
+		PostFields: map[string]any{
+			"issue":   issueNumber,
+			"task_id": taskID,
+			"pr":      prNumber,
+			"marker":  marker,
+		},
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -250,46 +246,63 @@ func (o *orchestrator) processPendingIssueUpdateComments(ctx context.Context, pr
 		}
 
 		marker := issueUpdateMarker(*link)
-		comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), link.IssueNumber)
-		if err != nil {
-			return fmt.Errorf("list comments for issue update marker on issue #%d: %w", link.IssueNumber, err)
-		}
-		exists := false
-		for _, comment := range comments {
-			if comment.User.Login != o.user {
-				continue
-			}
-			if strings.Contains(comment.Body, marker) {
-				exists = true
-				break
-			}
-		}
-		if exists {
-			link.CommentPosted = true
-			o.logEvent("issue_update_comment", "issue update marker already present; marking as posted", map[string]any{
+		body := buildIssueUpdateCommentBody(o.repo.FullName(), *link, o.currentTaskContextID())
+		exists, err := o.ensureIssueCommentMutation(ctx, issueCommentMutationSpec{
+			IssueNumber:      link.IssueNumber,
+			Marker:           marker,
+			Body:             body,
+			EventKind:        "issue_update_comment",
+			DuplicateMessage: "issue update marker already present; marking as posted",
+			PostMessage:      "posting issue update comment from tracked linkage intent",
+			ListError:        fmt.Sprintf("list comments for issue update marker on issue #%d", link.IssueNumber),
+			PostError:        fmt.Sprintf("post issue update comment on issue #%d", link.IssueNumber),
+			DuplicateFields: map[string]any{
 				"pr":       prNumber,
 				"issue":    link.IssueNumber,
 				"relation": link.Relation,
 				"key":      link.IdempotencyKey,
 				"marker":   marker,
-			})
-			continue
-		}
-
-		body := buildIssueUpdateCommentBody(o.repo.FullName(), *link, o.currentTaskContextID())
-		o.logEvent("issue_update_comment", "posting issue update comment from tracked linkage intent", map[string]any{
-			"pr":       prNumber,
-			"issue":    link.IssueNumber,
-			"relation": link.Relation,
-			"key":      link.IdempotencyKey,
-			"marker":   marker,
+			},
+			PostFields: map[string]any{
+				"pr":       prNumber,
+				"issue":    link.IssueNumber,
+				"relation": link.Relation,
+				"key":      link.IdempotencyKey,
+				"marker":   marker,
+			},
 		})
-		if err := github.CommentIssue(ctx, o.repoRoot, link.IssueNumber, limitString(body, 60000)); err != nil {
-			return fmt.Errorf("post issue update comment on issue #%d: %w", link.IssueNumber, err)
+		if err != nil {
+			return err
+		}
+		if exists {
+			link.CommentPosted = true
+			continue
 		}
 		link.CommentPosted = true
 	}
 	return nil
+}
+
+func (o *orchestrator) ensureIssueCommentMutation(ctx context.Context, spec issueCommentMutationSpec) (bool, error) {
+	comments, err := github.ListIssueComments(ctx, o.repoRoot, o.repo.FullName(), spec.IssueNumber)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", spec.ListError, err)
+	}
+	for _, comment := range comments {
+		if !strings.EqualFold(strings.TrimSpace(comment.User.Login), strings.TrimSpace(o.user)) {
+			continue
+		}
+		if strings.Contains(comment.Body, spec.Marker) {
+			o.logEvent(spec.EventKind, spec.DuplicateMessage, spec.DuplicateFields)
+			return true, nil
+		}
+	}
+
+	o.logEvent(spec.EventKind, spec.PostMessage, spec.PostFields)
+	if err := github.CommentIssue(ctx, o.repoRoot, spec.IssueNumber, limitString(spec.Body, 60000)); err != nil {
+		return false, fmt.Errorf("%s: %w", spec.PostError, err)
+	}
+	return false, nil
 }
 
 func issueUpdateMarker(link state.IssueLink) string {

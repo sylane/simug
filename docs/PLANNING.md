@@ -375,7 +375,7 @@ Execution note:
   - Scope: centralize protocol instructions/examples so runtime prompt builders and prompt tests use shared constants/renderers.
   - Done when: prompt contract drift is caught without duplicated literal maintenance across code/tests.
 
-- [ ] **Task 7.6: Idempotent GitHub mutation primitives**
+- [x] **Task 7.6: Idempotent GitHub mutation primitives**
   - Scope: extract shared marker/comment dedupe patterns used by issue analysis and issue-to-PR backlink flows into reusable helpers.
   - Done when: mutation idempotency logic is uniform and no longer duplicated across orchestrator paths.
 

@@ -77,6 +77,7 @@ https://keepachangelog.com/en/1.1.0/
 - Modularized the large orchestration loop by extracting managed-PR flow, no-PR bootstrap flow, agent validation, and GitHub mutation/state-transition helpers from `internal/app/run.go` into focused `internal/app/orchestration_*.go` files, with added state-transition unit coverage.
 - When a managed branch is already merged into `origin/main`, no-PR intake now checks out `main`, fast-forwards it, and deletes the merged local branch so dogfood runs do not accumulate stale agent branches.
 - No-PR intake now treats the exact head branch of a GitHub-confirmed merged managed PR as safe to leave even when `rebase and merge` or `squash and merge` rewrote the commits and the local branch tip is no longer ancestral to `origin/main`.
+- Consolidated issue-comment marker dedupe and posting into one shared orchestrator helper so triage, backlink, update, and finalization mutations all enforce the same same-user idempotency rule.
 - Bootstrap execution now requires exactly one commit from the staged baseline, and simug aborts automatic bootstrap repair/recovery when a failed attempt already advanced `HEAD`.
 - Managed-PR prompts now include inline review comment file/hunk/line metadata, and review-comment replies use the pull-number-scoped GitHub API path expected by GitHub.
 - Refined the Phase 7 backlog to queue follow-up work for inline review-context propagation, review-comment reply endpoint correctness, bootstrap single-commit fail-closed validation, and merged-branch local cleanup ahead of `Task 7.4`.
