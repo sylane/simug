@@ -365,7 +365,7 @@ Execution note:
   - Done when: protocol failures always retain exact offending evidence and real-runtime/canary coverage reproduces multi-terminal classes deterministically.
   - Refinement: archive the accepted active-turn envelope identity plus ignored out-of-envelope `SIMUG:` lines separately so 7.4e can distinguish stale echoes from active payload failures.
 
-- [ ] **Task 7.5: Single-source prompt contract**
+- [x] **Task 7.5: Single-source prompt contract**
   - Scope: centralize protocol instructions/examples so runtime prompt builders and prompt tests use shared constants/renderers.
   - Done when: prompt contract drift is caught without duplicated literal maintenance across code/tests.
 
