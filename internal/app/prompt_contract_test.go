@@ -31,23 +31,16 @@ func TestBuildManagedPRPromptContainsProtocolContract(t *testing.T) {
 	required := []string{
 		"Keep this turn focused on implementation, deterministic local checks, and coordinator output.",
 		"Do NOT run environment-sensitive validation gates in this turn",
-		"Emit machine actions only inside one bounded SIMUG coordinator envelope.",
-		"Emit exactly one coordinator begin envelope and one matching coordinator end envelope for the active turn.",
-		"Emit manager-facing human messages only with prefix SIMUG_MANAGER:",
-		"Coordinator ignores SIMUG lines outside the active turn envelope.",
-		"Unprefixed narrative text is quarantined and ignored by the coordinator.",
-		"Terminal protocol action must be exactly one of done or idle.",
 		"Do NOT push, do NOT create or modify PRs directly.",
 		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
-		"Coordinator envelope schema for this managed PR turn:",
-		"- SIMUG_MANAGER: <human-friendly manager message>",
-		"action envelope payload.action may be comment(body), reply(comment_id, body), issue_update(issue_number, relation, comment), done(summary, changes, optional pr_title, optional pr_body), or idle(reason)",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in managed prompt:\n%s", needle, prompt)
 		}
 	}
+	requirePromptContainsContractSection(t, prompt, managedPRCoordinatorRules())
+	requirePromptContainsContractSection(t, prompt, managedPRCoordinatorSchema())
 	if strings.Contains(prompt, `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>"`) {
 		t.Fatalf("managed prompt should not embed literal coordinator action examples:\n%s", prompt)
 	}
@@ -115,22 +108,15 @@ func TestBuildBootstrapIntentPromptContainsProtocolContract(t *testing.T) {
 		"This turn is INTENT-ONLY planning; do not modify files.",
 		"Do NOT edit files. Do NOT commit. Do NOT push. Do NOT create PR.",
 		"Intent comment body must start with INTENT_JSON:",
-		"Emit machine actions only inside one bounded SIMUG coordinator envelope.",
-		"Use SIMUG_MANAGER: for manager-facing human text; unprefixed text is quarantined.",
-		"Coordinator ignores SIMUG lines outside the active turn envelope.",
 		"Exactly one terminal action (done or idle) is required.",
-		"SIMUG_MANAGER: <human-friendly manager message>",
-		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"comment","body":"INTENT_JSON:{\"task_ref\":\"Task 7.2a\",\"summary\":\"...\",\"branch_slug\":\"intent-handshake\",\"pr_title\":\"...\",\"pr_body\":\"...\",\"checks\":[\"GOCACHE=/tmp/go-build go test ./...\"]}"}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"intent prepared","changes":false}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"idle","reason":"no task available"}}`,
-		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}`,
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in bootstrap intent prompt:\n%s", needle, prompt)
 		}
 	}
+	requirePromptContainsContractSection(t, prompt, bootstrapIntentCoordinatorRules())
+	requirePromptContainsContractSection(t, prompt, bootstrapIntentProtocolExamples())
 }
 
 func TestBuildBootstrapIntentPromptUsesDiscoveredGuidance(t *testing.T) {
@@ -245,15 +231,14 @@ func TestBuildBootstrapExecutionPromptContainsApprovedIntent(t *testing.T) {
 		"This execution turn is commit-producing only; do NOT run environment-sensitive validation gates in this turn",
 		"If later gate or reporting follow-up is still required, finish this turn after the commit, REPORT_JSON payload, and terminal action so follow-up can happen separately.",
 		"Use issue_update actions to declare issue linkage intent (fixes/impacts/relates); orchestrator owns all issue comments.",
-		"Coordinator envelope schema for this execution turn:",
-		"action envelope payload.action may be comment(body), issue_update(issue_number, relation, comment), done(summary, changes, optional pr_title, optional pr_body), or idle(reason)",
-		"when payload.action is comment and terminal action is done, exactly one comment body must start with REPORT_JSON: and include task_ref, summary, branch, and head from this run",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in bootstrap execution prompt:\n%s", needle, prompt)
 		}
 	}
+	requirePromptContainsContractSection(t, prompt, bootstrapExecutionCoordinatorRules())
+	requirePromptContainsContractSection(t, prompt, bootstrapExecutionCoordinatorSchema())
 	if strings.Contains(prompt, `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>"`) {
 		t.Fatalf("bootstrap execution prompt should not embed literal coordinator action examples:\n%s", prompt)
 	}
@@ -339,13 +324,6 @@ func TestBuildIssueTriagePromptContainsProtocolContract(t *testing.T) {
 	required := []string{
 		"Perform issue triage for the selected authored issue.",
 		"Do NOT create commits in issue triage mode.",
-		"Emit exactly one issue_report action before terminal action.",
-		"Terminal protocol action must be exactly one of done or idle.",
-		"SIMUG_MANAGER: <human-friendly manager message>",
-		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"<ACTIVE_TURN_ID>"}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"issue_report","issue_number":123,"relevant":true,"analysis":"...","needs_task":true,"task_title":"...","task_body":"..."}}`,
-		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>","payload":{"action":"done","summary":"issue triaged","changes":false}}`,
-		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"<ACTIVE_TURN_ID>"}`,
 		"Selected issue: #17",
 		"Issue title: Improve issue intake",
 	}
@@ -354,6 +332,8 @@ func TestBuildIssueTriagePromptContainsProtocolContract(t *testing.T) {
 			t.Fatalf("missing %q in issue triage prompt:\n%s", needle, prompt)
 		}
 	}
+	requirePromptContainsContractSection(t, prompt, issueTriageCoordinatorRules())
+	requirePromptContainsContractSection(t, prompt, issueTriageProtocolExamples())
 }
 
 func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
@@ -369,20 +349,15 @@ func TestBuildRepairPromptContainsProtocolContract(t *testing.T) {
 		"never push or create/update PR directly",
 		"do NOT run environment-sensitive validation gates in this repair turn",
 		"finish the repair turn once repository consistency is restored and the coordinator envelope is emitted; gate follow-up can happen separately",
-		"emit machine actions only inside one bounded SIMUG coordinator envelope",
 		"use issue_update actions for issue linkage intent; do not comment on issues directly",
-		"use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined",
-		"coordinator ignores SIMUG lines outside the active turn envelope",
-		fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)", expectedBranch, o.cfg.MainBranch),
-		"Coordinator envelope schema for this repair turn:",
-		"- SIMUG_MANAGER: <human-friendly manager message>",
-		"action envelope payload.action may be comment(body), reply(comment_id, body), issue_update(issue_number, relation, comment), done(summary, changes), or idle(reason)",
 	}
 	for _, needle := range required {
 		if !strings.Contains(prompt, needle) {
 			t.Fatalf("missing %q in repair prompt:\n%s", needle, prompt)
 		}
 	}
+	requirePromptContainsContractSection(t, prompt, repairCoordinatorRules(expectedBranch, o.cfg.MainBranch))
+	requirePromptContainsContractSection(t, prompt, repairCoordinatorSchema())
 	if strings.Contains(prompt, `SIMUG: {"envelope":"coordinator","event":"action","turn_id":"<ACTIVE_TURN_ID>"`) {
 		t.Fatalf("repair prompt should not embed literal coordinator action examples:\n%s", prompt)
 	}
@@ -432,5 +407,13 @@ func TestBuildRepairPromptFallsBackWithoutPlanningStatusLock(t *testing.T) {
 	prompt := o.buildRepairPrompt("agent/20260310-165033-bootstrap-context-abstraction", fmt.Errorf("scope violation"), scopeLock)
 	if !strings.Contains(prompt, "no supported planning status file was discovered for Task 7.3") {
 		t.Fatalf("missing planning fallback in repair prompt:\n%s", prompt)
+	}
+}
+
+func requirePromptContainsContractSection(t *testing.T, prompt string, section promptContractSection) {
+	t.Helper()
+	rendered := section.String()
+	if !strings.Contains(prompt, rendered) {
+		t.Fatalf("missing prompt contract section:\n%s\nprompt:\n%s", rendered, prompt)
 	}
 }

@@ -788,14 +788,7 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 	b.WriteString("- never push or create/update PR directly\n")
 	b.WriteString("- do NOT run environment-sensitive validation gates in this repair turn (for example scripts/canary-real-codex-gate.sh, self-host canaries, or network-dependent release checks)\n")
 	b.WriteString("- finish the repair turn once repository consistency is restored and the coordinator envelope is emitted; gate follow-up can happen separately\n")
-	b.WriteString("- emit machine actions only inside one bounded SIMUG coordinator envelope\n")
-	b.WriteString("- emit exactly one coordinator begin envelope and one matching coordinator end envelope for the active turn\n")
-	b.WriteString("- each coordinator action envelope must use event=action and carry the action JSON in payload\n")
-	b.WriteString("- when the coordinator provides a non-empty session_id for the active turn, include that same session_id in every coordinator envelope\n")
-	b.WriteString("- use SIMUG_MANAGER: for manager-facing messages; unprefixed text is quarantined\n")
-	b.WriteString("- coordinator ignores SIMUG lines outside the active turn envelope\n")
-	b.WriteString(fmt.Sprintf("- branch must be %q (or %q if terminal action is idle)\n", expectedBranch, o.cfg.MainBranch))
-	b.WriteString("- keep the working tree clean before finishing\n")
+	b.WriteString(repairCoordinatorRules(expectedBranch, o.cfg.MainBranch).String())
 	if scopeLock != nil {
 		b.WriteString(fmt.Sprintf("- execution scope lock: stay on %q and implement only %s\n", scopeLock.BranchName, scopeLock.TaskRef))
 		if scopeLock.PlanningEnforced {
@@ -806,10 +799,6 @@ func (o *orchestrator) buildRepairPrompt(expectedBranch string, validationErr er
 		}
 		b.WriteString("- when terminal action is done, emit one REPORT_JSON comment with task_ref, summary, branch, and head from this run\n")
 	}
-	b.WriteString("Coordinator envelope schema for this repair turn:\n")
-	b.WriteString("- SIMUG_MANAGER: <human-friendly manager message>\n")
-	b.WriteString("- begin envelope: coordinator event=begin for the active turn_id (and session_id when provided)\n")
-	b.WriteString("- action envelope payload.action may be comment(body), reply(comment_id, body), issue_update(issue_number, relation, comment), done(summary, changes), or idle(reason)\n")
-	b.WriteString("- end envelope: coordinator event=end matching the same active turn identity\n")
+	b.WriteString(repairCoordinatorSchema().String())
 	return b.String()
 }
