@@ -107,7 +107,7 @@ This strict rule prevents local state drift from silently corrupting automation 
 
 When no managed open PR exists:
 
-1. Validate repo is on `main` or on a branch already merged into `origin/main`.
+1. Validate repo is on `main`, on a branch already merged into `origin/main`, or on the head branch of a managed PR that GitHub already reports merged.
 2. Ensure clean working tree.
 3. Fast-forward local `main` to `origin/main` (`fetch` + `pull --ff-only`).
 4. If execution started from a merged managed local branch, delete that local branch after checkout/sync completes successfully.
@@ -146,6 +146,12 @@ When no managed open PR exists:
 15. Store new PR as active and begin monitoring.
 
 If no authored open issues exist, bootstrap the next work item from project guidance (for example planning/workflow docs when present).
+
+Post-merge transition note:
+
+- Merge-commit flows still require the current branch tip to be ancestral to `origin/main` before intake proceeds.
+- For GitHub `rebase and merge` / `squash and merge`, intake may leave the current managed branch after GitHub confirms the PR is merged, even when the local branch tip SHA is not ancestral to `origin/main`.
+- This exception applies only to the exact branch recorded on the merged managed PR; unrelated non-main branches remain blocked by the ancestry check.
 
 Codex can propose PR title/body through protocol; orchestrator uses those when creating the PR.
 

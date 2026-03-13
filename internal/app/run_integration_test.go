@@ -1006,6 +1006,71 @@ func TestRunOnceMergedPRChecksOutMainPullsAndDeletesMergedLocalBranch(t *testing
 	}
 }
 
+func TestRunOnceMergedRebasedPRChecksOutMainPullsAndDeletesManagedLocalBranch(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"idle","reason":"no task available"}`))
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	if err := os.MkdirAll(filepath.Join(tmp, ".simug"), 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	stateJSON := `{
+  "repo": "example/simug",
+  "mode": "managed_pr",
+  "active_pr": 42,
+  "active_branch": "` + branch + `",
+  "updated_at": "2026-03-08T01:00:00Z"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".simug", "state.json"), []byte(stateJSON), 0o644); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	runner := &sequencedCommandRunner{
+		responses: map[string][]string{
+			commandKey("git", "rev-parse", "--show-toplevel"): {tmp + "\n"},
+			commandKey("git", "remote", "get-url", "origin"):  {"https://github.com/example/simug.git\n"},
+			commandKey("gh", "api", "user", "--jq", ".login"): {"alice\n"},
+			commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): {`[]`},
+			commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"):                                   {`{"number":42,"title":"A","state":"MERGED","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":"2026-03-08T00:50:00Z"}`},
+			commandKey("git", "status", "--porcelain"):                                                              {"\n", "\n"},
+			commandKey("git", "fetch", "--prune", "origin"):                                                         {"", ""},
+			commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                                  {branch + "\n", "main\n"},
+			commandKey("git", "checkout", "main"):                                                                   {""},
+			commandKey("git", "rev-list", "--left-right", "--count", "HEAD...origin/main"):                          {"0 1\n"},
+			commandKey("git", "pull", "--ff-only", "origin", "main"):                                                {""},
+			commandKey("git", "branch", "-d", branch):                                                               {""},
+			commandKey("gh", "api", "repos/example/simug/issues?state=open&creator=alice", "--paginate", "--slurp"): {`[]`},
+			commandKey("git", "rev-parse", "HEAD"): {`abcdef
+`, `abcdef
+`},
+		},
+	}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	if err := RunOnce(context.Background(), tmp); err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if runner.counts[commandKey("git", "checkout", "main")] != 1 {
+		t.Fatalf("expected checkout main once, got %d", runner.counts[commandKey("git", "checkout", "main")])
+	}
+	if runner.counts[commandKey("git", "pull", "--ff-only", "origin", "main")] != 1 {
+		t.Fatalf("expected pull --ff-only once, got %d", runner.counts[commandKey("git", "pull", "--ff-only", "origin", "main")])
+	}
+	if runner.counts[commandKey("git", "branch", "-d", branch)] != 1 {
+		t.Fatalf("expected merged branch deletion once, got %d", runner.counts[commandKey("git", "branch", "-d", branch)])
+	}
+	if runner.counts[commandKey("git", "merge-base", "--is-ancestor", "HEAD", "origin/main")] != 0 {
+		t.Fatalf("expected merge-base ancestry check to be skipped for GitHub-confirmed merged branch, got %d", runner.counts[commandKey("git", "merge-base", "--is-ancestor", "HEAD", "origin/main")])
+	}
+}
+
 func TestRunWritesHighFidelityTraceEvents(t *testing.T) {
 	t.Setenv("SIMUG_POLL_SECONDS", "3600")
 	t.Setenv("SIMUG_AGENT_CMD", envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`))

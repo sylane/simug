@@ -63,9 +63,17 @@ func (o *orchestrator) handleSingleManagedPR(ctx context.Context, pr github.Pull
 	return o.handleManagedPR(ctx, pr.Number)
 }
 
+type mergedBranchTransitionContext struct {
+	PRNumber int
+	Branch   string
+}
+
 func (o *orchestrator) handleNoManagedPR(ctx context.Context) error {
+	var mergedBranchCtx mergedBranchTransitionContext
 	if o.state.ActivePR != 0 {
-		if err := o.handleInactiveManagedPR(ctx, o.state.ActivePR); err != nil {
+		var err error
+		mergedBranchCtx, err = o.handleInactiveManagedPR(ctx, o.state.ActivePR)
+		if err != nil {
 			return err
 		}
 		fmt.Printf("status: active PR #%d is no longer open; transitioning to next-task bootstrap\n", o.state.ActivePR)
@@ -81,7 +89,7 @@ func (o *orchestrator) handleNoManagedPR(ctx context.Context) error {
 		o.transitionToIssueTriageMode()
 	}
 	o.clearActivePRState()
-	return o.handleNoOpenPR(ctx)
+	return o.handleNoOpenPR(ctx, mergedBranchCtx)
 }
 
 func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error {
@@ -174,37 +182,46 @@ func (o *orchestrator) handleManagedPR(ctx context.Context, prNumber int) error 
 	return nil
 }
 
-func (o *orchestrator) handleInactiveManagedPR(ctx context.Context, prNumber int) error {
+func (o *orchestrator) handleInactiveManagedPR(ctx context.Context, prNumber int) (mergedBranchTransitionContext, error) {
+	var mergedBranchCtx mergedBranchTransitionContext
 	if prNumber <= 0 {
-		return nil
+		return mergedBranchCtx, nil
 	}
 	pr, err := github.GetPR(ctx, o.repoRoot, prNumber)
 	if err != nil {
-		return fmt.Errorf("read inactive PR #%d: %w", prNumber, err)
+		return mergedBranchCtx, fmt.Errorf("read inactive PR #%d: %w", prNumber, err)
 	}
 
 	merged := pr.MergedAt != nil || strings.EqualFold(strings.TrimSpace(pr.State), "MERGED")
 	if strings.EqualFold(strings.TrimSpace(pr.State), "OPEN") && !merged {
-		return fmt.Errorf("active PR #%d is still open but missing from authored open-PR set", prNumber)
+		return mergedBranchCtx, fmt.Errorf("active PR #%d is still open but missing from authored open-PR set", prNumber)
 	}
 	if !merged {
 		o.logEvent("pr_transition", "inactive PR is not merged; skipping issue finalization", map[string]any{
 			"pr":    pr.Number,
 			"state": pr.State,
 		})
-		return nil
+		return mergedBranchCtx, nil
 	}
 
+	mergedBranchCtx = mergedBranchTransitionContext{
+		PRNumber: pr.Number,
+		Branch:   strings.TrimSpace(pr.HeadRefName),
+	}
 	o.logEvent("pr_transition", "inactive PR is merged; finalizing tracked issue links", map[string]any{
-		"pr":    pr.Number,
-		"state": pr.State,
+		"pr":     pr.Number,
+		"state":  pr.State,
+		"branch": mergedBranchCtx.Branch,
 	})
-	return o.processMergedPRIssueFinalization(ctx, pr.Number)
+	if err := o.processMergedPRIssueFinalization(ctx, pr.Number); err != nil {
+		return mergedBranchCtx, err
+	}
+	return mergedBranchCtx, nil
 }
 
-func (o *orchestrator) handleNoOpenPR(ctx context.Context) error {
+func (o *orchestrator) handleNoOpenPR(ctx context.Context, mergedBranchCtx mergedBranchTransitionContext) error {
 	o.initializeNoPRMode()
-	if err := o.ensureMainReady(ctx); err != nil {
+	if err := o.ensureMainReady(ctx, mergedBranchCtx); err != nil {
 		return err
 	}
 
@@ -559,7 +576,7 @@ func (o *orchestrator) validateCheckoutMatchesPR(ctx context.Context, pr github.
 	return nil
 }
 
-func (o *orchestrator) ensureMainReady(ctx context.Context) error {
+func (o *orchestrator) ensureMainReady(ctx context.Context, mergedBranchCtx mergedBranchTransitionContext) error {
 	clean, status, err := git.IsClean(ctx, o.repoRoot)
 	if err != nil {
 		wrapped := fmt.Errorf("check working tree before main sync: %w", err)
@@ -588,16 +605,28 @@ func (o *orchestrator) ensureMainReady(ctx context.Context) error {
 	mainRemoteRef := "origin/" + o.cfg.MainBranch
 	mergedBranchToDelete := ""
 	if currentBranch != o.cfg.MainBranch {
-		merged, err := git.IsAncestor(ctx, o.repoRoot, "HEAD", mainRemoteRef)
-		if err != nil {
-			wrapped := fmt.Errorf("check whether current branch is merged into %s: %w", mainRemoteRef, err)
-			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_merged", "branch": currentBranch, "target": mainRemoteRef, "error": wrapped.Error()})
-			return wrapped
-		}
-		if !merged {
-			wrapped := fmt.Errorf("current branch %q is not merged into %s; refusing to start a new task", currentBranch, mainRemoteRef)
-			o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_merged", "branch": currentBranch, "target": mainRemoteRef, "error": wrapped.Error()})
-			return wrapped
+		allowMergedPRBranch := mergedBranchCtx.Branch != "" && currentBranch == mergedBranchCtx.Branch
+		if allowMergedPRBranch {
+			o.logEvent("invariant_decision", "main readiness accepted GitHub-confirmed merged branch", map[string]any{
+				"pass":      true,
+				"stage":     "check_merged_via_pr_state",
+				"branch":    currentBranch,
+				"pr":        mergedBranchCtx.PRNumber,
+				"target":    mainRemoteRef,
+				"pr_branch": mergedBranchCtx.Branch,
+			})
+		} else {
+			merged, err := git.IsAncestor(ctx, o.repoRoot, "HEAD", mainRemoteRef)
+			if err != nil {
+				wrapped := fmt.Errorf("check whether current branch is merged into %s: %w", mainRemoteRef, err)
+				o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_merged", "branch": currentBranch, "target": mainRemoteRef, "error": wrapped.Error()})
+				return wrapped
+			}
+			if !merged {
+				wrapped := fmt.Errorf("current branch %q is not merged into %s; refusing to start a new task", currentBranch, mainRemoteRef)
+				o.logEvent("invariant_decision", "main readiness failed", map[string]any{"pass": false, "stage": "check_merged", "branch": currentBranch, "target": mainRemoteRef, "error": wrapped.Error()})
+				return wrapped
+			}
 		}
 		if err := git.Checkout(ctx, o.repoRoot, o.cfg.MainBranch); err != nil {
 			wrapped := fmt.Errorf("checkout %s: %w", o.cfg.MainBranch, err)
