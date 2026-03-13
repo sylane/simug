@@ -613,14 +613,28 @@ func normalizePRMetadata(done agent.Action) (string, string) {
 	return title, body
 }
 
-func buildAttemptArchiveDiagnostics(rawOutput string, result *agent.Result, runErr error, validationErr error) attemptArchiveDiagnostics {
+func buildAttemptArchiveDiagnostics(rawOutput string, turn agent.CoordinatorTurn, result *agent.Result, runErr error, validationErr error) attemptArchiveDiagnostics {
 	diagnostics := attemptArchiveDiagnostics{}
 	diagnostics.RolloutRefs, diagnostics.SessionRefs = extractCodexPathReferences(rawOutput)
 
-	rawProtocolLines := collectRawProtocolLines(rawOutput)
-	diagnostics.RawLineCount = len(rawProtocolLines)
+	forensics := agent.CollectProtocolForensics(rawOutput, turn)
+	diagnostics.RawLineCount = len(forensics.RawProtocolLines)
+	diagnostics.ActiveTurnID = strings.TrimSpace(forensics.AcceptedTurn.TurnID)
+	diagnostics.ActiveSessionID = strings.TrimSpace(forensics.AcceptedTurn.SessionID)
+	diagnostics.ActiveLineCount = len(forensics.ActiveProtocolLines)
+	diagnostics.ActiveLines = append([]string(nil), forensics.ActiveProtocolLines...)
+	diagnostics.IgnoredLineCount = len(forensics.IgnoredProtocolLines)
+	diagnostics.IgnoredLines = append([]string(nil), forensics.IgnoredProtocolLines...)
+
 	if result == nil {
-		for _, line := range rawProtocolLines {
+		linesForCounts := forensics.ActiveProtocolLines
+		if len(linesForCounts) == 0 {
+			linesForCounts = forensics.RawProtocolLines
+		}
+		for _, line := range linesForCounts {
+			if strings.Contains(line, `"event":"action"`) || strings.Contains(line, `"action":"`) {
+				diagnostics.ActionCount++
+			}
 			switch {
 			case strings.Contains(line, `"action":"done"`):
 				diagnostics.TerminalCount++
@@ -629,11 +643,20 @@ func buildAttemptArchiveDiagnostics(rawOutput string, result *agent.Result, runE
 				diagnostics.TerminalCount++
 				diagnostics.TerminalTypes = append(diagnostics.TerminalTypes, "idle")
 			}
-			if len(diagnostics.ActionsExcerpt) < 8 {
-				diagnostics.ActionsExcerpt = append(diagnostics.ActionsExcerpt, limitString(line, 220))
-			}
 		}
-		diagnostics.ActionCount = len(rawProtocolLines)
+		linesForExcerpt := forensics.ActiveProtocolLines
+		if len(linesForExcerpt) == 0 {
+			linesForExcerpt = forensics.IgnoredProtocolLines
+		}
+		if len(linesForExcerpt) == 0 {
+			linesForExcerpt = forensics.RawProtocolLines
+		}
+		for _, line := range linesForExcerpt {
+			if len(diagnostics.ActionsExcerpt) >= 8 {
+				break
+			}
+			diagnostics.ActionsExcerpt = append(diagnostics.ActionsExcerpt, limitString(line, 220))
+		}
 		if runErr != nil {
 			diagnostics.ParserHint = limitString(strings.TrimSpace(runErr.Error()), 600)
 		}
@@ -658,6 +681,14 @@ func buildAttemptArchiveDiagnostics(rawOutput string, result *agent.Result, runE
 	}
 	if validationErr != nil {
 		diagnostics.ParserHint = limitString(strings.TrimSpace(validationErr.Error()), 600)
+	}
+	if len(diagnostics.ActionsExcerpt) == 0 {
+		for _, line := range forensics.ActiveProtocolLines {
+			if len(diagnostics.ActionsExcerpt) >= 8 {
+				break
+			}
+			diagnostics.ActionsExcerpt = append(diagnostics.ActionsExcerpt, limitString(line, 220))
+		}
 	}
 	return diagnostics
 }

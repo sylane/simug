@@ -1153,7 +1153,8 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 	promptPath, _ := archiveFields["prompt_path"].(string)
 	outputPath, _ := archiveFields["output_path"].(string)
 	metadataPath, _ := archiveFields["metadata_path"].(string)
-	if promptPath == "" || outputPath == "" || metadataPath == "" {
+	transcriptPath, _ := archiveFields["transcript_path"].(string)
+	if promptPath == "" || outputPath == "" || metadataPath == "" || transcriptPath == "" {
 		t.Fatalf("archive event missing paths: %#v", archiveFields)
 	}
 
@@ -1173,6 +1174,17 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 		t.Fatalf("unexpected output archive content: %s", string(outputData))
 	}
 
+	transcriptData, err := os.ReadFile(transcriptPath)
+	if err != nil {
+		t.Fatalf("read transcript archive: %v", err)
+	}
+	if !strings.Contains(string(transcriptData), " simug[prompt] You are Codex running under simug orchestration.") {
+		t.Fatalf("unexpected transcript archive content: %s", string(transcriptData))
+	}
+	if !strings.Contains(string(transcriptData), ` codex[protocol] SIMUG: {"envelope":"coordinator","event":"action"`) {
+		t.Fatalf("transcript missing protocol classification: %s", string(transcriptData))
+	}
+
 	var meta struct {
 		RunID                  string   `json:"run_id"`
 		TickSeq                int64    `json:"tick_seq"`
@@ -1181,6 +1193,8 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 		ProtocolActionCount    int      `json:"protocol_action_count"`
 		ProtocolTerminalCount  int      `json:"protocol_terminal_count"`
 		ProtocolActionsExcerpt []string `json:"protocol_actions_excerpt"`
+		ProtocolActiveTurnID   string   `json:"protocol_active_turn_id"`
+		ProtocolActiveLines    []string `json:"protocol_active_lines"`
 	}
 	metaData, err := os.ReadFile(metadataPath)
 	if err != nil {
@@ -1200,6 +1214,9 @@ func TestRunArchivesCodexPromptAndOutput(t *testing.T) {
 	}
 	if len(meta.ProtocolActionsExcerpt) == 0 {
 		t.Fatalf("metadata protocol diagnostics missing excerpt: %#v", meta)
+	}
+	if meta.ProtocolActiveTurnID == "" || len(meta.ProtocolActiveLines) == 0 {
+		t.Fatalf("metadata active-turn evidence missing: %#v", meta)
 	}
 }
 
@@ -1343,6 +1360,117 @@ func TestRunPersistsInFlightAttemptJournalOnAgentFailure(t *testing.T) {
 	}
 	if strings.TrimSpace(st.InFlightAttempt.AgentError) == "" {
 		t.Fatalf("expected agent_error to be captured in journal: %#v", st.InFlightAttempt)
+	}
+}
+
+func TestRunArchivesExactProtocolEvidenceOnDuplicatedTerminalFailure(t *testing.T) {
+	t.Setenv("SIMUG_POLL_SECONDS", "3600")
+	t.Setenv("SIMUG_MAX_REPAIR_ATTEMPTS", "0")
+	t.Setenv("SIMUG_AGENT_CMD", strings.Join([]string{
+		`printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"stale-turn"}\n'`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"action","turn_id":"stale-turn","payload":{"action":"done","summary":"stale","changes":false}}\n'`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"stale-turn"}\n'`,
+		`turn="$SIMUG_PROTOCOL_TURN_ID"`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"action","turn_id":"%s","payload":{"action":"done","summary":"ok","changes":false}}\n' "$turn"`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"action","turn_id":"%s","payload":{"action":"idle","reason":"duplicate"}}\n' "$turn"`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"echo-turn"}\n'`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"action","turn_id":"echo-turn","payload":{"action":"done","summary":"echo","changes":false}}\n'`,
+		`printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"echo-turn"}\n'`,
+	}, "; "))
+
+	tmp := t.TempDir()
+	branch := "agent/20260307-120000-alpha-task"
+	runner := mockCommandRunner{responses: map[string]string{
+		commandKey("git", "rev-parse", "--show-toplevel"): tmp + "\n",
+		commandKey("git", "remote", "get-url", "origin"):  "https://github.com/example/simug.git\n",
+		commandKey("gh", "api", "user", "--jq", ".login"): "alice\n",
+		commandKey("gh", "pr", "list", "--state", "open", "--author", "alice", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `[
+  {"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}
+]`,
+		commandKey("gh", "pr", "view", "42", "--json", "number,title,state,headRefName,headRefOid,baseRefName,author,mergedAt"): `{"number":42,"title":"A","state":"OPEN","headRefName":"` + branch + `","headRefOid":"abcdef","baseRefName":"main","author":{"login":"alice"},"mergedAt":null}`,
+		commandKey("git", "fetch", "--prune", "origin"):                                            "",
+		commandKey("git", "rev-parse", "--abbrev-ref", "HEAD"):                                     branch + "\n",
+		commandKey("git", "status", "--porcelain"):                                                 "\n",
+		commandKey("git", "rev-parse", "HEAD"):                                                     "abcdef\n",
+		commandKey("git", "rev-parse", "origin/"+branch):                                           "abcdef\n",
+		commandKey("gh", "api", "repos/example/simug/issues/42/comments", "--paginate", "--slurp"): `[[{"id":1001,"body":"tick","created_at":"2026-03-07T12:00:00Z","user":{"login":"alice"}}]]`,
+		commandKey("gh", "api", "repos/example/simug/pulls/42/comments", "--paginate", "--slurp"):  "[]",
+		commandKey("gh", "api", "repos/example/simug/pulls/42/reviews", "--paginate", "--slurp"):   "[]",
+	}}
+
+	restoreGit := git.SetCommandRunnerForTest(runner)
+	defer restoreGit()
+	restoreGitHub := github.SetCommandRunnerForTest(runner)
+	defer restoreGitHub()
+
+	err := RunOnce(context.Background(), tmp)
+	if err == nil {
+		t.Fatalf("expected run failure")
+	}
+	if !strings.Contains(err.Error(), "exactly one terminal action") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, readErr := os.ReadFile(filepath.Join(tmp, ".simug", "events.log"))
+	if readErr != nil {
+		t.Fatalf("read events log: %v", readErr)
+	}
+
+	var archiveFields map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var entry struct {
+			Kind   string         `json:"kind"`
+			Fields map[string]any `json:"fields"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("decode event log entry: %v", err)
+		}
+		if entry.Kind == "agent_archive" {
+			archiveFields = entry.Fields
+		}
+	}
+	if archiveFields == nil {
+		t.Fatalf("expected agent_archive event")
+	}
+
+	outputPath, _ := archiveFields["output_path"].(string)
+	transcriptPath, _ := archiveFields["transcript_path"].(string)
+	metadataPath, _ := archiveFields["metadata_path"].(string)
+	if outputPath == "" || transcriptPath == "" || metadataPath == "" {
+		t.Fatalf("archive event missing paths: %#v", archiveFields)
+	}
+
+	outputData, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		t.Fatalf("read output archive: %v", readErr)
+	}
+	if strings.TrimSpace(string(outputData)) == "" {
+		t.Fatalf("expected non-empty raw output archive")
+	}
+
+	transcriptData, readErr := os.ReadFile(transcriptPath)
+	if readErr != nil {
+		t.Fatalf("read transcript archive: %v", readErr)
+	}
+	if !strings.Contains(string(transcriptData), ` codex[protocol] SIMUG: {"envelope":"coordinator","event":"action"`) {
+		t.Fatalf("expected transcript protocol classification, got: %s", string(transcriptData))
+	}
+
+	var meta struct {
+		ProtocolTerminalCount int    `json:"protocol_terminal_count"`
+		ProtocolParserHint    string `json:"protocol_parser_hint"`
+	}
+	metaData, readErr := os.ReadFile(metadataPath)
+	if readErr != nil {
+		t.Fatalf("read metadata archive: %v", readErr)
+	}
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		t.Fatalf("decode metadata archive: %v", err)
+	}
+	if !strings.Contains(meta.ProtocolParserHint, "exactly one terminal action") {
+		t.Fatalf("unexpected parser hint: %q", meta.ProtocolParserHint)
 	}
 }
 

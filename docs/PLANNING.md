@@ -360,7 +360,7 @@ Execution note:
   - Done when: operators can follow high-signal progress live without console spam and reconstruct the full interaction from archived logs without relying on terminal scrollback.
   - Refinement: treat deferred gate/canary work as a separate post-turn phase in verbose output rather than blending it into the commit-producing execution milestone stream.
 
-- [ ] **Task 7.4e: Protocol/archive forensic hardening and runtime regressions**
+- [x] **Task 7.4e: Protocol/archive forensic hardening and runtime regressions**
   - Scope: guarantee non-empty archived raw/classified output on parser failures, persist the exact protocol lines that drove terminal counts, and add runtime regressions for duplicated terminals, echoed protocol snippets, and transcript archival fidelity.
   - Done when: protocol failures always retain exact offending evidence and real-runtime/canary coverage reproduces multi-terminal classes deterministically.
   - Refinement: archive the accepted active-turn envelope identity plus ignored out-of-envelope `SIMUG:` lines separately so 7.4e can distinguish stale echoes from active payload failures.

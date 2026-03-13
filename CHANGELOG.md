@@ -65,6 +65,8 @@ https://keepachangelog.com/en/1.1.0/
 - Added session continuity helpers/tests for resume command construction, session-id extraction from artifacts, and bootstrap-session state normalization semantics.
 - Added explicit issue-task bootstrap handoff state (`issue_task_intent`) plus active PR task context tracking (`active_task_ref`) so issue-derived triage intent survives to bootstrap/PR linkage without orchestrator planning-file mutation.
 - Added repo-relative `SIMUG_GUIDANCE_PATHS` / `SIMUG_PLANNING_PATHS` configuration so bootstrap prompts and planning scope locks can discover non-standard repository guidance files without hard-coding simug-specific filenames.
+- Added exact protocol-line forensics to attempt archives, including the accepted active-turn identity plus separated active-turn and ignored out-of-envelope `SIMUG:` lines for parser and duplicated-terminal failures.
+- Added protocol/runtime regressions covering echoed out-of-envelope protocol snippets, duplicated terminal failures with archived evidence, transcript archive fidelity, and non-empty failure artifacts when raw output or classified transcript text would otherwise be empty.
 
 ### Changed
 

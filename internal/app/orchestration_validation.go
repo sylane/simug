@@ -138,7 +138,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 				}
 				afterHead = observedHead
 			}
-			diagnostics := buildAttemptArchiveDiagnostics(rawOutput, nil, err, nil)
+			diagnostics := buildAttemptArchiveDiagnostics(rawOutput, turn, nil, err, nil)
 			transcript.RecordMilestone(fmt.Sprintf("codex attempt %d/%d command failure: %s", attempt+1, o.cfg.MaxRepairAttempts+1, limitString(err.Error(), 400)))
 			transcriptText := transcript.Text()
 			if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, "", err.Error(), ""); journalErr != nil {
@@ -238,7 +238,7 @@ func (o *orchestrator) runAgentWithValidationOptions(ctx context.Context, option
 		if journalErr := o.recordInFlightAttemptResult(attempt+1, afterHead, string(result.Terminal.Type), "", errorText(validationErr)); journalErr != nil {
 			return agent.Result{}, "", journalErr
 		}
-		diagnostics := buildAttemptArchiveDiagnostics(result.RawOutput, &result, nil, validationErr)
+		diagnostics := buildAttemptArchiveDiagnostics(result.RawOutput, turn, &result, nil, validationErr)
 		transcriptText := transcript.Text()
 		paths, archiveErr := o.archiveAgentAttempt(
 			attempt+1,

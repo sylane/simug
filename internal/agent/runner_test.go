@@ -106,6 +106,41 @@ func TestParseRoutedOutputUsesOnlyMatchingActiveTurnEnvelope(t *testing.T) {
 	}
 }
 
+func TestCollectProtocolForensicsSeparatesActiveAndIgnoredTurnLines(t *testing.T) {
+	turn := CoordinatorTurn{TurnID: "turn-123"}
+	raw := strings.Join([]string{
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"stale-turn"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"stale-turn","payload":{"action":"done","summary":"stale","changes":false}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"stale-turn"}`,
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"turn-123","payload":{"action":"done","summary":"ok","changes":false}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"turn-123"}`,
+		`SIMUG: {"envelope":"coordinator","event":"action","turn_id":"turn-123","payload":{"action":"idle","reason":"echo"}}`,
+		`SIMUG: {"envelope":"coordinator","event":"end","turn_id":"turn-123"}`,
+	}, "\n")
+
+	forensics := CollectProtocolForensics(raw, turn)
+	if got := len(forensics.RawProtocolLines); got != 9 {
+		t.Fatalf("raw protocol lines=%d, want 9", got)
+	}
+	if got := len(forensics.ActiveProtocolLines); got != 3 {
+		t.Fatalf("active protocol lines=%d, want 3", got)
+	}
+	if got := len(forensics.IgnoredProtocolLines); got != 6 {
+		t.Fatalf("ignored protocol lines=%d, want 6", got)
+	}
+	if forensics.AcceptedTurn.TurnID != turn.TurnID {
+		t.Fatalf("accepted turn=%q, want %q", forensics.AcceptedTurn.TurnID, turn.TurnID)
+	}
+	if !strings.Contains(forensics.ActiveProtocolLines[1], `"summary":"ok"`) {
+		t.Fatalf("unexpected active lines: %#v", forensics.ActiveProtocolLines)
+	}
+	if !strings.Contains(forensics.IgnoredProtocolLines[0], `"turn_id":"stale-turn"`) {
+		t.Fatalf("unexpected ignored lines: %#v", forensics.IgnoredProtocolLines)
+	}
+}
+
 func TestParseRoutedOutputRejectsMalformedActiveTurnAction(t *testing.T) {
 	turn := CoordinatorTurn{TurnID: "turn-123"}
 	_, err := parseRoutedOutput(strings.Join([]string{
