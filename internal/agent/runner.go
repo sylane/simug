@@ -66,6 +66,13 @@ type Result struct {
 	Turn             CoordinatorTurn
 }
 
+type ProtocolForensics struct {
+	RawProtocolLines     []string
+	ActiveProtocolLines  []string
+	IgnoredProtocolLines []string
+	AcceptedTurn         CoordinatorTurn
+}
+
 type StreamKind string
 
 const (
@@ -257,6 +264,84 @@ func parseActions(raw string) ([]Action, error) {
 		return nil, err
 	}
 	return parsed.Actions, nil
+}
+
+func CollectProtocolForensics(raw string, turn CoordinatorTurn) ProtocolForensics {
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	forensics := ProtocolForensics{}
+	if strings.TrimSpace(turn.TurnID) == "" {
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if strings.HasPrefix(line, protocolPrefixCurrent) {
+				forensics.RawProtocolLines = append(forensics.RawProtocolLines, line)
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+			}
+		}
+		return forensics
+	}
+
+	active := false
+	completed := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, protocolPrefixCurrent) {
+			continue
+		}
+		forensics.RawProtocolLines = append(forensics.RawProtocolLines, line)
+
+		jsonPart := strings.TrimSpace(strings.TrimPrefix(line, protocolPrefixCurrent))
+		envelope, err := parseCoordinatorEnvelope(jsonPart)
+		if err != nil {
+			if active && !completed {
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+			} else {
+				forensics.IgnoredProtocolLines = append(forensics.IgnoredProtocolLines, line)
+			}
+			continue
+		}
+		if !coordinatorEnvelopeMatchesTurn(envelope, turn) {
+			forensics.IgnoredProtocolLines = append(forensics.IgnoredProtocolLines, line)
+			continue
+		}
+
+		switch envelope.Event {
+		case "begin":
+			if !active && !completed {
+				active = true
+				forensics.AcceptedTurn = CoordinatorTurn{TurnID: envelope.TurnID, SessionID: envelope.Session}
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+				continue
+			}
+			if active && !completed {
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+				continue
+			}
+			forensics.IgnoredProtocolLines = append(forensics.IgnoredProtocolLines, line)
+		case "action":
+			if active && !completed {
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+			} else {
+				forensics.IgnoredProtocolLines = append(forensics.IgnoredProtocolLines, line)
+			}
+		case "end":
+			if active && !completed {
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+				completed = true
+			} else {
+				forensics.IgnoredProtocolLines = append(forensics.IgnoredProtocolLines, line)
+			}
+		default:
+			if active && !completed {
+				forensics.ActiveProtocolLines = append(forensics.ActiveProtocolLines, line)
+			} else {
+				forensics.IgnoredProtocolLines = append(forensics.IgnoredProtocolLines, line)
+			}
+		}
+	}
+	return forensics
 }
 
 type parsedOutput struct {

@@ -61,3 +61,48 @@ func TestArchiveAgentAttemptWritesTranscript(t *testing.T) {
 		t.Fatalf("unexpected transcript filename: %s", paths.TranscriptPath)
 	}
 }
+
+func TestArchiveAgentAttemptUsesPlaceholdersForEmptyArtifacts(t *testing.T) {
+	tmp := t.TempDir()
+	o := &orchestrator{
+		repoRoot: tmp,
+		runID:    "run-a",
+		tickSeq:  7,
+	}
+
+	paths, err := o.archiveAgentAttempt(
+		1,
+		3,
+		"agent/20260312-173000-task",
+		"abc123",
+		"abc123",
+		agent.CoordinatorTurn{TurnID: "turn-1"},
+		"prompt line\n",
+		"",
+		"",
+		"",
+		false,
+		"protocol failure",
+		"",
+		attemptArchiveDiagnostics{},
+	)
+	if err != nil {
+		t.Fatalf("archiveAgentAttempt returned error: %v", err)
+	}
+
+	outputData, err := os.ReadFile(paths.OutputPath)
+	if err != nil {
+		t.Fatalf("read raw output: %v", err)
+	}
+	if strings.TrimSpace(string(outputData)) != "simug archived empty raw agent output" {
+		t.Fatalf("unexpected raw output placeholder: %q", string(outputData))
+	}
+
+	transcriptData, err := os.ReadFile(paths.TranscriptPath)
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	if strings.TrimSpace(string(transcriptData)) != "simug archived empty classified transcript" {
+		t.Fatalf("unexpected transcript placeholder: %q", string(transcriptData))
+	}
+}

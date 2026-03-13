@@ -384,6 +384,7 @@ Rules:
 - Exactly one terminal action (`done` or `idle`) must be emitted inside the active-turn envelope payloads.
 - Non-terminal actions may appear before terminal action inside the active-turn envelope.
 - Only `payload` actions inside the active matching turn/session envelope contribute to action and terminal cardinality; stale, echoed, duplicated, or mismatched `SIMUG:` lines outside that envelope are ignored.
+- Protocol failure archives record the accepted active-turn identity plus the exact active-turn `SIMUG:` lines and ignored out-of-envelope `SIMUG:` lines so stale echoes can be distinguished from active payload failures.
 - When coordinator provides a non-empty `session_id`, every active-turn envelope line must carry the same `session_id`.
 - In `issue_triage` mode, exactly one `issue_report` must be emitted before terminal action.
 - Every manager-facing message must use `SIMUG_MANAGER:` prefix.
@@ -640,9 +641,9 @@ High-fidelity trace coverage:
 - tick boundaries emit `tick_start` / `tick_end` with duration and failure context.
 - each Codex attempt is archived under `.simug/archive/agent/<run_id>/tick-<tick_seq>/attempt-<n>/` with:
   - `prompt.txt` (exact prompt input),
-  - `raw_output.txt` (raw agent stdout payload),
+  - `raw_output.txt` (raw agent stdout payload, or an explicit empty-output placeholder when the agent emitted nothing),
   - `transcript.log` (timestamped `simug`/`codex` interaction stream including prompt lines, live output, and attempt milestones),
-  - `metadata.json` (attempt/run/tick/branch/error correlation fields plus protocol action excerpts, terminal diagnostics, transcript path, and rollout/session path references when detected).
+  - `metadata.json` (attempt/run/tick/branch/error correlation fields plus protocol action excerpts, accepted active-turn identity, exact active/ignored protocol-line evidence, terminal diagnostics, transcript path, and rollout/session path references when detected).
 
 This enables deterministic reconstruction of a failed run without rerunning the worker.
 

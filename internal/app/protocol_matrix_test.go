@@ -40,6 +40,21 @@ func TestRunAgentWithValidationProtocolMatrix(t *testing.T) {
 			wantActions:  2,
 		},
 		{
+			name: "ignores echoed protocol snippets outside active envelope",
+			agentCmd: strings.Join([]string{
+				`printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"stale-turn"}\n'`,
+				`printf 'SIMUG: {"envelope":"coordinator","event":"action","turn_id":"stale-turn","payload":{"action":"done","summary":"stale","changes":false}}\n'`,
+				`printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"stale-turn"}\n'`,
+				envelopedAgentCommand(`{"action":"done","summary":"ok","changes":false}`),
+				`printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"echo-turn"}\n'`,
+				`printf 'SIMUG: {"envelope":"coordinator","event":"action","turn_id":"echo-turn","payload":{"action":"idle","reason":"echo"}}\n'`,
+				`printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"echo-turn"}\n'`,
+			}, "; "),
+			wantErr:      "",
+			wantTerminal: agent.ActionDone,
+			wantActions:  1,
+		},
+		{
 			name:         "malformed json protocol line",
 			agentCmd:     `printf 'note\n'; turn="$SIMUG_PROTOCOL_TURN_ID"; printf 'SIMUG: {"envelope":"coordinator","event":"begin","turn_id":"%s"}\n' "$turn"; printf 'SIMUG: {bad-json}\n'; printf 'SIMUG: {"envelope":"coordinator","event":"end","turn_id":"%s"}\n' "$turn"`,
 			wantErr:      "execution/protocol errors",
